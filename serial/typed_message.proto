@@ -1,0 +1,12 @@
+syntax = "proto3";
+
+package pysugar.wheels.serial;
+option csharp_namespace = "PySugar.Wheels.Serial";
+option go_package = "github.com/pysugar/wheels/serial";
+option java_package = "com.github.pysuger.wheels.serial";
+option java_multiple_files = true;
+
+message TypedMessage {
+  string type = 1;
+  bytes value = 2;
+}
