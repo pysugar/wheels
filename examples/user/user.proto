@@ -1,0 +1,22 @@
+syntax = "proto3";
+
+package pysugar.wheels.examples.user;
+option csharp_namespace = "PySugar.Wheels.Examples.User";
+option go_package = "github.com/pysugar/wheels/examples/user";
+option java_package = "com.github.pysuger.wheels.examples.user";
+option java_multiple_files = true;
+
+import "serial/typed_message.proto";
+
+message User {
+  uint32 level = 1;
+  string email = 2;
+
+  serial.TypedMessage account = 3;
+}
+
+
+message Account {
+  string username = 1;
+  string password = 2;
+}
