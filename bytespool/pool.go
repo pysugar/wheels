@@ -46,9 +46,9 @@ func GetPool(size int32) *sync.Pool {
 
 // Alloc returns a byte slice with at least the given size. Minimum size of returned slice is 2048.
 func Alloc(size int32) []byte {
-	pool := GetPool(size)
-	if pool != nil {
-		return pool.Get().([]byte)
+	p := GetPool(size)
+	if p != nil {
+		return p.Get().([]byte)
 	}
 	return make([]byte, size)
 }
