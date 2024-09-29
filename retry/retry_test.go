@@ -1,7 +1,7 @@
 package retry_test
 
 import (
-	"errors"
+	"github.com/pysugar/wheels/errors"
 	"github.com/pysugar/wheels/retry"
 	"github.com/stretchr/testify/assert"
 	"testing"
@@ -72,7 +72,9 @@ func TestRetryExhausted(t *testing.T) {
 	})
 	duration := time.Since(startTime)
 
-	assert.Error(t, err, retry.ErrRetry)
+	assert.Error(t, err)
+	assert.Equal(t, err.Error(), retry.ErrRetryFailed.Error())
+	assert.Equal(t, errors.Cause(err), errorTestOnly)
 	if v := int64(duration / time.Millisecond); v < 1900 {
 		t.Error("duration: ", v)
 	}
@@ -88,7 +90,9 @@ func TestExponentialBackoff(t *testing.T) {
 	})
 	duration := time.Since(startTime)
 
-	assert.Error(t, err, retry.ErrRetry)
+	assert.Error(t, err)
+	assert.Equal(t, err.Error(), retry.ErrRetryFailed.Error())
+	assert.Equal(t, errors.Cause(err), errorTestOnly)
 	if v := int64(duration / time.Millisecond); v < 4000 {
 		t.Error("duration: ", v)
 	}

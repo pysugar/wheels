@@ -1,11 +1,11 @@
 package retry
 
 import (
-	"errors"
+	"github.com/pysugar/wheels/errors"
 	"time"
 )
 
-var ErrRetry = errors.New("retry error")
+var ErrRetryFailed = errors.New("retry failed")
 
 // Strategy is a way to retry on a specific function.
 type Strategy interface {
@@ -21,21 +21,21 @@ type retryer struct {
 // On implements Strategy.On.
 func (r *retryer) On(method func() error) error {
 	attempt := 0
-	accumulatedError := make([]error, 0, r.totalAttempt)
+	accumulatedErrors := make([]error, 0, r.totalAttempt)
 	for attempt < r.totalAttempt {
 		err := method()
 		if err == nil {
 			return nil
 		}
-		numErrors := len(accumulatedError)
-		if numErrors == 0 || err.Error() != accumulatedError[numErrors-1].Error() {
-			accumulatedError = append(accumulatedError, err)
+		numErrors := len(accumulatedErrors)
+		if numErrors == 0 || err.Error() != accumulatedErrors[numErrors-1].Error() {
+			accumulatedErrors = append(accumulatedErrors, err)
 		}
 		delay := r.nextDelay()
 		time.Sleep(time.Duration(delay) * time.Millisecond)
 		attempt++
 	}
-	return ErrRetry
+	return errors.Multi(ErrRetryFailed, accumulatedErrors)
 }
 
 // Timed returns a retry strategy with fixed interval.
