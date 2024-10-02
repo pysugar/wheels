@@ -6,43 +6,28 @@ import (
 )
 
 func TestByteSizes(t *testing.T) {
-	size := units.ByteSize(0)
-	assertSizeString(t, size, "0")
-	size++
-	assertSizeValue(t,
-		assertSizeString(t, size, "1.00B"),
-		size,
-	)
-	size <<= 10
-	assertSizeValue(t,
-		assertSizeString(t, size, "1.00KB"),
-		size,
-	)
-	size <<= 10
-	assertSizeValue(t,
-		assertSizeString(t, size, "1.00MB"),
-		size,
-	)
-	size <<= 10
-	assertSizeValue(t,
-		assertSizeString(t, size, "1.00GB"),
-		size,
-	)
-	size <<= 10
-	assertSizeValue(t,
-		assertSizeString(t, size, "1.00TB"),
-		size,
-	)
-	size <<= 10
-	assertSizeValue(t,
-		assertSizeString(t, size, "1.00PB"),
-		size,
-	)
-	size <<= 10
-	assertSizeValue(t,
-		assertSizeString(t, size, "1.00EB"),
-		size,
-	)
+	assertSizeString(t, units.ByteSize(0), "0")
+
+	tests := []struct {
+		name     string
+		size     units.ByteSize
+		expected string
+	}{
+		{"Bytes", 1, "1.00B"},
+		{"Kilobytes", 1 << 10, "1.00KB"},
+		{"Megabytes", 1 << 20, "1.00MB"},
+		{"Gigabytes", 1 << 30, "1.00GB"},
+		{"Terabytes", 1 << 40, "1.00TB"},
+		{"Petabytes", 1 << 50, "1.00PB"},
+		{"Exabytes", 1 << 60, "1.00EB"},
+	}
+
+	for _, test := range tests {
+		tt := test
+		t.Run(tt.name, func(t *testing.T) {
+			assertSizeValue(t, assertSizeString(t, tt.size, tt.expected), tt.size)
+		})
+	}
 }
 
 func assertSizeValue(t *testing.T, size string, expected units.ByteSize) {
