@@ -8,5 +8,6 @@ $ protoc --go_out=. --go_opt=paths=source_relative serial/typed_message.proto
 
 $ protoc --go_out=. --go_opt=paths=source_relative net/address.proto
 $ protoc --go_out=. --go_opt=paths=source_relative net/network.proto
+$ protoc --go_out=. --go_opt=paths=source_relative net/port.proto
 $ protoc --go_out=. --go_opt=paths=source_relative net/destination.proto
 ```

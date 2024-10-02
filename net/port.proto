@@ -1,0 +1,20 @@
+syntax = "proto3";
+
+package pysugar.wheels.net;
+option csharp_namespace = "PySugar.Wheels.Net";
+option go_package = "github.com/pysugar/wheels/net";
+option java_package = "com.github.pysuger.wheels.net";
+option java_multiple_files = true;
+
+// PortRange represents a range of ports.
+message PortRange {
+  // The port that this range starts from.
+  uint32 From = 1;
+  // The port that this range ends with (inclusive).
+  uint32 To = 2;
+}
+
+// PortList is a list of ports.
+message PortList {
+  repeated PortRange range = 1;
+}
