@@ -1,0 +1,19 @@
+syntax = "proto3";
+
+package pysugar.wheels.net;
+option csharp_namespace = "PySugar.Wheels.Net";
+option go_package = "github.com/pysugar/wheels/net";
+option java_package = "com.github.pysuger.wheels.net";
+option java_multiple_files = true;
+
+// Address of a network host. It may be either an IP address or a domain
+// address.
+message IPOrDomain {
+  oneof address {
+    // IP address. Must by either 4 or 16 bytes.
+    bytes ip = 1;
+
+    // Domain address.
+    string domain = 2;
+  }
+}

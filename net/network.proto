@@ -1,0 +1,19 @@
+syntax = "proto3";
+
+package pysugar.wheels.net;
+option csharp_namespace = "PySugar.Wheels.Net";
+option go_package = "github.com/pysugar/wheels/net";
+option java_package = "com.github.pysuger.wheels.net";
+option java_multiple_files = true;
+
+enum Network {
+  Unknown = 0;
+
+  RawTCP = 1 [deprecated = true];
+  TCP = 2;
+  UDP = 3;
+  UNIX = 4;
+}
+
+// NetworkList is a list of Networks.
+message NetworkList { repeated Network network = 1; }

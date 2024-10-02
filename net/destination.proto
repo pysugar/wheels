@@ -1,0 +1,17 @@
+syntax = "proto3";
+
+package pysugar.wheels.net;
+option csharp_namespace = "PySugar.Wheels.Net";
+option go_package = "github.com/pysugar/wheels/net";
+option java_package = "com.github.pysuger.wheels.net";
+option java_multiple_files = true;
+
+import "net/network.proto";
+import "net/address.proto";
+
+// Endpoint of a network connection.
+message Endpoint {
+  Network network = 1;
+  IPOrDomain address = 2;
+  uint32 port = 3;
+}

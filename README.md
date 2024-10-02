@@ -4,5 +4,9 @@ $ go install -v google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest
 
 # /usr/bin/env protoc --version
 $ /usr/local/bin/protoc --version
-$ protoc --go_out=. --go_opt=paths=source_relative  serial/typed_message.proto
+$ protoc --go_out=. --go_opt=paths=source_relative serial/typed_message.proto
+
+$ protoc --go_out=. --go_opt=paths=source_relative net/address.proto
+$ protoc --go_out=. --go_opt=paths=source_relative net/network.proto
+$ protoc --go_out=. --go_opt=paths=source_relative net/destination.proto
 ```
