@@ -1,28 +1,11 @@
 package pipe
 
 import (
-	"github.com/pysugar/wheels/buf"
+	"context"
+	"github.com/pysugar/wheels/features/policy"
 	"github.com/pysugar/wheels/signal"
 	"github.com/pysugar/wheels/signal/done"
 )
-
-type state byte
-
-const (
-	opened state = iota
-	closed
-	errord
-)
-
-type pipeOption struct {
-	limit           int32 // maximum buffer size in bytes
-	discardOverflow bool
-	onTransmission  func(buffer buf.MultiBuffer) buf.MultiBuffer
-}
-
-func (o *pipeOption) isFull(curSize int32) bool {
-	return o.limit >= 0 && curSize > o.limit
-}
 
 // Option for creating new Pipes.
 type Option func(*pipeOption)
@@ -41,12 +24,6 @@ func WithSizeLimit(limit int32) Option {
 	}
 }
 
-func OnTransmission(hook func(mb buf.MultiBuffer) buf.MultiBuffer) Option {
-	return func(option *pipeOption) {
-		option.onTransmission = hook
-	}
-}
-
 // DiscardOverflow returns an Option for Pipe to discard writes if full.
 func DiscardOverflow() Option {
 	return func(opt *pipeOption) {
@@ -55,11 +32,12 @@ func DiscardOverflow() Option {
 }
 
 // OptionsFromContext returns a list of Options from context.
-func OptionsFromContext(limit int32) []Option {
+func OptionsFromContext(ctx context.Context) []Option {
 	var opt []Option
 
-	if limit >= 0 {
-		opt = append(opt, WithSizeLimit(limit))
+	bp := policy.BufferPolicyFromContext(ctx)
+	if bp.PerConnection >= 0 {
+		opt = append(opt, WithSizeLimit(bp.PerConnection))
 	} else {
 		opt = append(opt, WithoutSizeLimit())
 	}

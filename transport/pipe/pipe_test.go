@@ -2,7 +2,6 @@ package pipe_test
 
 import (
 	"errors"
-	. "github.com/pysugar/wheels/transport/pipe"
 	"io"
 	"testing"
 	"time"
@@ -10,6 +9,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/pysugar/wheels/buf"
 	"github.com/pysugar/wheels/lang"
+	. "github.com/pysugar/wheels/transport/pipe"
 	"golang.org/x/sync/errgroup"
 )
 

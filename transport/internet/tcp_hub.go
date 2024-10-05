@@ -1,11 +1,11 @@
 package internet
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/pysugar/wheels/net"
 	"github.com/pysugar/wheels/transport/internet/stat"
-	"golang.org/x/net/context"
 )
 
 var transportListenerCache = make(map[string]ListenFunc)

@@ -2,12 +2,12 @@ package buf_test
 
 import (
 	"crypto/tls"
-	"github.com/gptlocal/netools/testing/servers/tcp"
 	"io"
 	"testing"
 
 	. "github.com/pysugar/wheels/buf"
 	"github.com/pysugar/wheels/net"
+	"github.com/pysugar/wheels/testing/servers/tcp"
 )
 
 func TestWriterCreation(t *testing.T) {
@@ -17,12 +17,14 @@ func TestWriterCreation(t *testing.T) {
 		t.Fatal("failed to start tcp server: ", err)
 	}
 	defer tcpServer.Close()
+	t.Logf("destination: %v", dest)
 
 	conn, err := net.Dial("tcp", dest.NetAddr())
 	if err != nil {
 		t.Fatal("failed to dial a TCP connection: ", err)
 	}
 	defer conn.Close()
+	t.Logf("connection: (%v -> %v)", conn.LocalAddr(), conn.RemoteAddr())
 
 	{
 		writer := NewWriter(conn)
@@ -40,7 +42,7 @@ func TestWriterCreation(t *testing.T) {
 		InsecureSkipVerify: true,
 	})
 	defer tlsConn.Close()
-
+	t.Logf("tls connection: (%v -> %v)", tlsConn.LocalAddr(), tlsConn.RemoteAddr())
 	{
 		writer := NewWriter(tlsConn)
 		if _, ok := writer.(*SequentialWriter); !ok {

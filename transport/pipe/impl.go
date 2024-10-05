@@ -11,6 +11,23 @@ import (
 	"time"
 )
 
+type state byte
+
+const (
+	open state = iota
+	closed
+	errord
+)
+
+type pipeOption struct {
+	limit           int32 // maximum buffer size in bytes
+	discardOverflow bool
+}
+
+func (o *pipeOption) isFull(curSize int32) bool {
+	return o.limit >= 0 && curSize > o.limit
+}
+
 type pipe struct {
 	sync.Mutex
 	data        buf.MultiBuffer
@@ -29,7 +46,7 @@ var (
 
 func (p *pipe) getState(forRead bool) error {
 	switch p.state {
-	case opened:
+	case open:
 		if !forRead && p.option.isFull(p.data.Len()) {
 			return errBufferFull
 		}
@@ -119,10 +136,6 @@ func (p *pipe) writeMultiBufferInternal(mb buf.MultiBuffer) error {
 func (p *pipe) WriteMultiBuffer(mb buf.MultiBuffer) error {
 	if mb.IsEmpty() {
 		return nil
-	}
-
-	if p.option.onTransmission != nil {
-		mb = p.option.onTransmission(mb)
 	}
 
 	for {
