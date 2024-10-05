@@ -3,9 +3,10 @@ package buf_test
 import (
 	"bytes"
 	"crypto/rand"
+	"testing"
+
 	"github.com/google/go-cmp/cmp"
 	. "github.com/pysugar/wheels/buf"
-	"testing"
 )
 
 func TestBufferClear(t *testing.T) {

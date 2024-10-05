@@ -33,6 +33,11 @@ func Decode(v *TypedMessage) (proto.Message, error) {
 	return protoMessage, nil
 }
 
+// Decode converts current TypedMessage into a proto Message.
+func (v *TypedMessage) Decode() (proto.Message, error) {
+	return Decode(v)
+}
+
 func GetInstance(messageType string) (proto.Message, error) {
 	messageTypeDescriptor := protoreflect.FullName(messageType)
 	mType, err := protoregistry.GlobalTypes.FindMessageByName(messageTypeDescriptor)

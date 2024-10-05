@@ -10,4 +10,6 @@ $ protoc --go_out=. --go_opt=paths=source_relative net/address.proto
 $ protoc --go_out=. --go_opt=paths=source_relative net/network.proto
 $ protoc --go_out=. --go_opt=paths=source_relative net/port.proto
 $ protoc --go_out=. --go_opt=paths=source_relative net/destination.proto
+
+$ protoc --go_out=. --go_opt=paths=source_relative transport/internet/config.proto
 ```

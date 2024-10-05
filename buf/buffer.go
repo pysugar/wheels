@@ -2,10 +2,11 @@ package buf
 
 import (
 	"fmt"
+	"io"
+
 	"github.com/pysugar/wheels/bytespool"
 	"github.com/pysugar/wheels/errors"
 	"github.com/pysugar/wheels/net"
-	"io"
 )
 
 const (
