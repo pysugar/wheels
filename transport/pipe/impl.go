@@ -2,13 +2,14 @@ package pipe
 
 import (
 	"errors"
-	"github.com/pysugar/wheels/buf"
-	"github.com/pysugar/wheels/signal"
-	"github.com/pysugar/wheels/signal/done"
 	"io"
 	"runtime"
 	"sync"
 	"time"
+
+	"github.com/pysugar/wheels/buf"
+	"github.com/pysugar/wheels/signal"
+	"github.com/pysugar/wheels/signal/done"
 )
 
 type state byte
