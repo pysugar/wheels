@@ -3,10 +3,11 @@ package buf
 import (
 	"bytes"
 	"crypto/rand"
-	"github.com/google/go-cmp/cmp"
 	"io"
 	"os"
 	"testing"
+
+	"github.com/google/go-cmp/cmp"
 )
 
 func TestMultiBufferRead(t *testing.T) {
