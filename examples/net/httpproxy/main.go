@@ -35,13 +35,57 @@ func handleHTTPProxy(clientConn net.Conn) {
 	reader := bufio.NewReader(clientConn)
 	request, err := http.ReadRequest(reader)
 	if err != nil {
-		log.Printf("Failed to read client request: %v\n", err)
+		log.Printf("Failed to read client request: %v", err)
 		return
 	}
 
+	if request.Method == http.MethodConnect {
+		handleConnectMethod(clientConn, request)
+	} else {
+		handleHTTPRequest(clientConn, request)
+	}
+}
+
+func handleConnectMethod(clientConn net.Conn, request *http.Request) {
 	targetHost := request.Host
 	if !strings.Contains(targetHost, ":") {
-		targetHost = fmt.Sprintf("%s:80", targetHost)
+		if request.URL.Scheme == "https" {
+			targetHost = fmt.Sprintf("%s:443", targetHost)
+		} else {
+			targetHost = fmt.Sprintf("%s:80", targetHost)
+		}
+	}
+
+	targetConn, err := net.DialTimeout("tcp", targetHost, 10*time.Second)
+	if err != nil {
+		log.Printf("Failed to connect to target: %v\n", err)
+		const errorHeaders = "\r\nContent-Type: text/plain; charset=utf-8\r\nConnection: close\r\n\r\n"
+		fmt.Fprintf(clientConn, "HTTP/1.1 503 Service Unavailable"+errorHeaders+err.Error())
+		return
+	}
+	fmt.Fprintf(clientConn, "HTTP/1.1 200 Connection Established\r\n\r\n")
+	defer targetConn.Close()
+
+	go func() {
+		if _, er := io.Copy(targetConn, clientConn); er != nil {
+			log.Printf("Error copying from client to target: %v\n", er)
+		}
+	}()
+
+	_, err = io.Copy(clientConn, targetConn)
+	if err != nil {
+		log.Printf("Error copying from target to client: %v\n", err)
+	}
+}
+
+func handleHTTPRequest(clientConn net.Conn, request *http.Request) {
+	targetHost := request.Host
+	if !strings.Contains(targetHost, ":") {
+		if request.URL.Scheme == "https" {
+			targetHost = fmt.Sprintf("%s:443", targetHost)
+		} else {
+			targetHost = fmt.Sprintf("%s:80", targetHost)
+		}
 	}
 
 	targetConn, err := net.DialTimeout("tcp", targetHost, 10*time.Second)
@@ -62,17 +106,14 @@ func handleHTTPProxy(clientConn net.Conn) {
 	}
 
 	go func() {
-		err := copyTo(targetConn, reader)
-		// _, err := io.Copy(targetConn, clientConn)
-		// _, err := io.Copy(targetConn, reader)
-		if err != nil {
+		// er := copyTo(targetConn, clientConn)
+		if _, er := io.Copy(targetConn, clientConn); er != nil {
 			log.Printf("Error copying from client to target: %v\n", err)
 		}
 	}()
 
-	// _, err = io.Copy(clientConn, targetConn)
-	err = copyTo(clientConn, targetConn)
-	if err != nil {
+	// er = copyTo(clientConn, targetConn)
+	if _, er := io.Copy(clientConn, targetConn); er != nil {
 		log.Printf("Error copying from target to client: %v\n", err)
 	}
 }
