@@ -12,12 +12,12 @@ import (
 )
 
 func main() {
-	listener, err := net.Listen("tcp", ":8080")
+	listener, err := net.Listen("tcp", ":8000")
 	if err != nil {
 		log.Fatalf("Error starting listener: %v\n", err)
 	}
 
-	log.Println("Starting HTTP transparent proxy on :8080")
+	log.Println("Starting HTTP transparent proxy on ", listener.Addr())
 	for {
 		clientConn, err := listener.Accept()
 		if err != nil {
