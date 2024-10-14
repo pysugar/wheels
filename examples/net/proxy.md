@@ -10,9 +10,10 @@ $ go run main.go
 $ cd httpproxy
 $ go run main.go
 
-$ cd httpserver
+$ cd httpsserver
 # 创建自签名证书和私钥
 $ openssl req -x509 -newkey rsa:4096 -keyout key.pem -out cert.pem -days 365 -nodes
+$ go run main.go
 ```
 
 ```bash
