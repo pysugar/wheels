@@ -7,12 +7,14 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var greetCmd = &cobra.Command{
+var uuidCmd = &cobra.Command{
 	Use:   `uuid [-i "example"]`,
 	Short: "Generate UUIDv4 or UUIDv5",
 	Long: `
 Generate UUIDv4 or UUIDv5.
+
 UUIDv4 (random): netool uuid
+
 UUIDv5 (from input): netool uuid -i "example"
 `,
 	Run: func(cmd *cobra.Command, args []string) {
@@ -32,6 +34,6 @@ UUIDv5 (from input): netool uuid -i "example"
 }
 
 func init() {
-	greetCmd.Flags().StringP("input", "i", "example", "seed")
-	base.AddSubCommands(greetCmd)
+	uuidCmd.Flags().StringP("input", "i", "example", "seed")
+	base.AddSubCommands(uuidCmd)
 }
