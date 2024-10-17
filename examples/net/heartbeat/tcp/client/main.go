@@ -19,12 +19,17 @@ func main() {
 	messageChan := make(chan string)
 	// 用于心跳响应的通知
 	heartbeatResponseChan := make(chan bool)
+	// 用于心跳协程的退出通知
+	heartbeatDone := make(chan struct{})
 
 	// 启动读取协程
 	go reader(conn, messageChan, heartbeatResponseChan)
 
 	// 启动心跳协程
-	go startHeartbeat(conn, heartbeatResponseChan)
+	go func() {
+		startHeartbeat(conn, heartbeatResponseChan)
+		close(heartbeatDone)
+	}()
 
 	// 主循环处理消息
 	for {
@@ -37,15 +42,17 @@ func main() {
 			if message == "PING" {
 				// 回复 PONG
 				if _, er := conn.Write([]byte("PONG")); er != nil {
-					fmt.Printf("Failed to send PONG: %v\n", err)
+					fmt.Printf("Failed to send PONG: %v\n", er)
 					return
 				}
-
 				fmt.Println("Received PING, sent PONG")
 			} else {
 				// 处理其他消息
 				fmt.Printf("Received message: %s\n", message)
 			}
+		case <-heartbeatDone:
+			fmt.Println("Heartbeat failed, exiting main loop")
+			return
 		}
 	}
 }
