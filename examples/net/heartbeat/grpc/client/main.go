@@ -15,33 +15,66 @@ func main() {
 	defer conn.Close()
 	fmt.Println("Connected to server")
 
-	// 启动心跳协程
-	go startHeartbeat(conn)
+	// 用于接收从连接读取的消息
+	messageChan := make(chan string)
+	// 用于心跳响应的通知
+	heartbeatResponseChan := make(chan bool)
 
-	buf := make([]byte, 1024)
+	// 启动读取协程
+	go reader(conn, messageChan, heartbeatResponseChan)
+
+	// 启动心跳协程
+	go startHeartbeat(conn, heartbeatResponseChan)
+
+	// 主循环处理消息
 	for {
-		n, er := conn.Read(buf)
-		if er != nil {
-			fmt.Printf("Read error: %v\n", er)
-			continue
-		}
-		message := string(buf[:n])
-		if message == "PING" {
-			// 回复 Pong
-			_, err := conn.Write([]byte("PONG"))
-			if err != nil {
-				fmt.Printf("Failed to send PONG: %v\n", err)
+		select {
+		case message, ok := <-messageChan:
+			if !ok {
+				fmt.Println("Connection closed")
 				return
 			}
-			fmt.Println("Received PING, sent PONG")
-		} else {
-			// 处理其他消息
-			fmt.Printf("Received message: %s\n", message)
+			if message == "PING" {
+				// 回复 PONG
+				if _, er := conn.Write([]byte("PONG")); er != nil {
+					fmt.Printf("Failed to send PONG: %v\n", err)
+					return
+				}
+
+				fmt.Println("Received PING, sent PONG")
+			} else {
+				// 处理其他消息
+				fmt.Printf("Received message: %s\n", message)
+			}
 		}
 	}
 }
 
-func startHeartbeat(conn net.Conn) {
+func reader(conn net.Conn, messageChan chan<- string, heartbeatResponseChan chan<- bool) {
+	defer func() {
+		close(messageChan)
+		close(heartbeatResponseChan)
+	}()
+
+	buf := make([]byte, 1024)
+	for {
+		n, err := conn.Read(buf)
+		if err != nil {
+			fmt.Printf("Read error: %v\n", err)
+			return
+		}
+		message := string(buf[:n])
+		if message == "PONG" {
+			// 心跳响应
+			heartbeatResponseChan <- true
+		} else {
+			// 其他消息
+			messageChan <- message
+		}
+	}
+}
+
+func startHeartbeat(conn net.Conn, heartbeatResponseChan <-chan bool) {
 	ticker := time.NewTicker(10 * time.Second)
 	defer ticker.Stop()
 
@@ -54,20 +87,16 @@ func startHeartbeat(conn net.Conn) {
 				fmt.Printf("Failed to send heartbeat: %v\n", err)
 				return
 			}
-			// 等待回应
-			conn.SetReadDeadline(time.Now().Add(5 * time.Second))
-			buf := make([]byte, 4)
-			_, err = conn.Read(buf)
-			if err != nil {
-				fmt.Printf("Heartbeat timeout: %v\n", err)
+			fmt.Println("Sent heartbeat PING")
+
+			// 等待回应，设置超时时间
+			select {
+			case <-heartbeatResponseChan:
+				fmt.Println("Heartbeat successful")
+			case <-time.After(5 * time.Second):
+				fmt.Println("Heartbeat timeout")
 				return
 			}
-			if string(buf) != "PONG" {
-				fmt.Println("Invalid heartbeat response")
-				return
-			}
-			conn.SetReadDeadline(time.Time{})
-			fmt.Println("Heartbeat successful")
 		}
 	}
 }
