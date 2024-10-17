@@ -1,10 +1,12 @@
 package main
 
 import (
+	"bufio"
 	"errors"
 	"fmt"
 	"io"
 	"net"
+	"strings"
 	"time"
 )
 
@@ -51,7 +53,7 @@ func handleConnection(conn net.Conn) {
 			}
 			if message == "PING" {
 				// 回复 PONG
-				_, err := conn.Write([]byte("PONG"))
+				_, err := conn.Write([]byte("PONG\n"))
 				if err != nil {
 					fmt.Printf("Failed to send PONG: %v\n", err)
 					return
@@ -70,9 +72,9 @@ func reader(conn net.Conn, messageChan chan<- string, heartbeatResponseChan chan
 		close(messageChan)
 		close(heartbeatResponseChan)
 	}()
-	buf := make([]byte, 1024)
+	rd := bufio.NewReader(conn)
 	for {
-		n, err := conn.Read(buf)
+		line, err := rd.ReadString('\n')
 		if err != nil {
 			if errors.Is(err, io.EOF) {
 				fmt.Println("Connection closed by remote")
@@ -93,7 +95,7 @@ func reader(conn net.Conn, messageChan chan<- string, heartbeatResponseChan chan
 				break
 			}
 		}
-		message := string(buf[:n])
+		message := strings.TrimSpace(line)
 		if message == "PONG" {
 			// 心跳响应
 			heartbeatResponseChan <- true
@@ -112,7 +114,7 @@ func startHeartbeat(conn net.Conn, heartbeatResponseChan <-chan bool) {
 		select {
 		case <-ticker.C:
 			// 发送心跳
-			_, err := conn.Write([]byte("PING"))
+			_, err := conn.Write([]byte("PING\n"))
 			if err != nil {
 				fmt.Printf("Failed to send heartbeat: %v\n", err)
 				return

@@ -1,10 +1,12 @@
 package main
 
 import (
+	"bufio"
 	"errors"
 	"fmt"
 	"io"
 	"net"
+	"strings"
 	"time"
 )
 
@@ -19,11 +21,10 @@ func main() {
 
 	messageChan := make(chan string)
 	heartbeatResponseChan := make(chan bool)
-	connClosedChan := make(chan bool)
 	heartbeatDone := make(chan struct{})
 
 	// 启动读取协程
-	go reader(conn, messageChan, heartbeatResponseChan, connClosedChan)
+	go reader(conn, messageChan, heartbeatResponseChan)
 
 	// 启动心跳协程
 	go func() {
@@ -41,7 +42,7 @@ func main() {
 			}
 			if message == "PING" {
 				// 回复 PONG
-				if _, er := conn.Write([]byte("PONG")); er != nil {
+				if _, er := conn.Write([]byte("PONG\n")); er != nil {
 					fmt.Printf("Failed to send PONG: %v\n", er)
 					return
 				}
@@ -53,20 +54,19 @@ func main() {
 		case <-heartbeatDone:
 			fmt.Println("Heartbeat failed, exiting main loop")
 			return
-		case <-connClosedChan:
-			fmt.Println("Connection closed, attempting to reconnect")
-			return
 		}
 	}
 }
+
 func reader(conn net.Conn, messageChan chan<- string, heartbeatResponseChan chan<- bool) {
 	defer func() {
 		close(messageChan)
 		close(heartbeatResponseChan)
 	}()
-	buf := make([]byte, 1024)
+
+	rd := bufio.NewReader(conn)
 	for {
-		n, err := conn.Read(buf)
+		line, err := rd.ReadString('\n')
 		if err != nil {
 			if errors.Is(err, io.EOF) {
 				fmt.Println("Connection closed by remote")
@@ -87,7 +87,7 @@ func reader(conn net.Conn, messageChan chan<- string, heartbeatResponseChan chan
 				break
 			}
 		}
-		message := string(buf[:n])
+		message := strings.TrimSpace(line)
 		if message == "PONG" {
 			// 心跳响应
 			heartbeatResponseChan <- true
