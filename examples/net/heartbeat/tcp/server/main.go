@@ -1,7 +1,9 @@
 package main
 
 import (
+	"errors"
 	"fmt"
+	"io"
 	"net"
 	"time"
 )
@@ -36,7 +38,6 @@ func handleConnection(conn net.Conn) {
 
 	// 启动读取协程
 	go reader(conn, messageChan, heartbeatResponseChan)
-
 	// 启动心跳协程
 	go startHeartbeat(conn, heartbeatResponseChan)
 
@@ -73,8 +74,24 @@ func reader(conn net.Conn, messageChan chan<- string, heartbeatResponseChan chan
 	for {
 		n, err := conn.Read(buf)
 		if err != nil {
-			fmt.Printf("Read error: %v\n", err)
-			return
+			if errors.Is(err, io.EOF) {
+				fmt.Println("Connection closed by remote")
+				break
+			} else if nerr, ok := err.(net.Error); ok {
+				if nerr.Temporary() {
+					fmt.Printf("Temporary read error: %v\n", err)
+					continue // 临时错误，继续读取
+				} else if nerr.Timeout() {
+					fmt.Printf("Read timeout: %v\n", err)
+					time.Sleep(100 * time.Millisecond)
+					continue
+				}
+				fmt.Printf("Unexpect network error: %v", err)
+				break
+			} else {
+				fmt.Printf("Read error: %v\n", err)
+				break
+			}
 		}
 		message := string(buf[:n])
 		if message == "PONG" {
@@ -105,7 +122,7 @@ func startHeartbeat(conn net.Conn, heartbeatResponseChan <-chan bool) {
 			// 等待回应，设置超时时间
 			select {
 			case <-heartbeatResponseChan:
-				fmt.Println("Heartbeat successful")
+				fmt.Println("Heartbeat successful -- Received PONG")
 			case <-time.After(5 * time.Second):
 				fmt.Println("Heartbeat timeout")
 				return

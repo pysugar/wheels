@@ -1,7 +1,9 @@
 package main
 
 import (
+	"errors"
 	"fmt"
+	"io"
 	"net"
 	"time"
 )
@@ -15,15 +17,13 @@ func main() {
 	defer conn.Close()
 	fmt.Println("Connected to server")
 
-	// 用于接收从连接读取的消息
 	messageChan := make(chan string)
-	// 用于心跳响应的通知
 	heartbeatResponseChan := make(chan bool)
-	// 用于心跳协程的退出通知
+	connClosedChan := make(chan bool)
 	heartbeatDone := make(chan struct{})
 
 	// 启动读取协程
-	go reader(conn, messageChan, heartbeatResponseChan)
+	go reader(conn, messageChan, heartbeatResponseChan, connClosedChan)
 
 	// 启动心跳协程
 	go func() {
@@ -36,7 +36,7 @@ func main() {
 		select {
 		case message, ok := <-messageChan:
 			if !ok {
-				fmt.Println("Connection closed")
+				fmt.Println("Message channel closed")
 				return
 			}
 			if message == "PING" {
@@ -53,22 +53,39 @@ func main() {
 		case <-heartbeatDone:
 			fmt.Println("Heartbeat failed, exiting main loop")
 			return
+		case <-connClosedChan:
+			fmt.Println("Connection closed, attempting to reconnect")
+			return
 		}
 	}
 }
-
 func reader(conn net.Conn, messageChan chan<- string, heartbeatResponseChan chan<- bool) {
 	defer func() {
 		close(messageChan)
 		close(heartbeatResponseChan)
 	}()
-
 	buf := make([]byte, 1024)
 	for {
 		n, err := conn.Read(buf)
 		if err != nil {
-			fmt.Printf("Read error: %v\n", err)
-			return
+			if errors.Is(err, io.EOF) {
+				fmt.Println("Connection closed by remote")
+				break
+			} else if nerr, ok := err.(net.Error); ok {
+				if nerr.Temporary() {
+					fmt.Printf("Temporary read error: %v\n", err)
+					continue // 临时错误，继续读取
+				} else if nerr.Timeout() {
+					fmt.Printf("Read timeout: %v\n", err)
+					time.Sleep(100 * time.Millisecond)
+					continue
+				}
+				fmt.Printf("Unexpect network error: %v", err)
+				break
+			} else {
+				fmt.Printf("Read error: %v\n", err)
+				break
+			}
 		}
 		message := string(buf[:n])
 		if message == "PONG" {
@@ -89,7 +106,7 @@ func startHeartbeat(conn net.Conn, heartbeatResponseChan <-chan bool) {
 		select {
 		case <-ticker.C:
 			// 发送心跳
-			_, err := conn.Write([]byte("PING"))
+			_, err := conn.Write([]byte("PING\n"))
 			if err != nil {
 				fmt.Printf("Failed to send heartbeat: %v\n", err)
 				return
@@ -99,7 +116,7 @@ func startHeartbeat(conn net.Conn, heartbeatResponseChan <-chan bool) {
 			// 等待回应，设置超时时间
 			select {
 			case <-heartbeatResponseChan:
-				fmt.Println("Heartbeat successful")
+				fmt.Println("Heartbeat successful - Received PONG")
 			case <-time.After(5 * time.Second):
 				fmt.Println("Heartbeat timeout")
 				return
