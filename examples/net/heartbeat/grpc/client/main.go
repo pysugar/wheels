@@ -3,14 +3,19 @@ package main
 import (
 	"context"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/grpclog"
 	"google.golang.org/grpc/keepalive"
 	"log"
+	"os"
 	"time"
 
 	pb "github.com/pysugar/wheels/examples/net/heartbeat/grpc/heartbeat"
 )
 
 func main() {
+	logger := grpclog.NewLoggerV2(os.Stdout, os.Stdout, os.Stderr)
+	grpclog.SetLoggerV2(logger)
+
 	ka := keepalive.ClientParameters{
 		Time:                10 * time.Second,
 		Timeout:             3 * time.Second,

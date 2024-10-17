@@ -3,8 +3,10 @@ package main
 import (
 	"context"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/grpclog"
 	"log"
 	"net"
+	"os"
 
 	pb "github.com/pysugar/wheels/examples/net/heartbeat/grpc/heartbeat"
 )
@@ -19,6 +21,9 @@ func (s *server) Heartbeat(ctx context.Context, in *pb.HeartbeatRequest) (*pb.He
 }
 
 func main() {
+	logger := grpclog.NewLoggerV2(os.Stdout, os.Stdout, os.Stderr)
+	grpclog.SetLoggerV2(logger)
+
 	lis, err := net.Listen("tcp", ":50051")
 	if err != nil {
 		log.Fatalf("Failed to listen: %v", err)
