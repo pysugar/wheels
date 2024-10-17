@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/keepalive"
 	"log"
 	"time"
 
@@ -10,7 +11,13 @@ import (
 )
 
 func main() {
-	conn, err := grpc.Dial("localhost:50051", grpc.WithInsecure())
+	ka := keepalive.ClientParameters{
+		Time:                10 * time.Second,
+		Timeout:             3 * time.Second,
+		PermitWithoutStream: true,
+	}
+
+	conn, err := grpc.Dial("localhost:50051", grpc.WithInsecure(), grpc.WithKeepaliveParams(ka))
 	if err != nil {
 		log.Fatalf("Failed to connect: %v", err)
 	}
