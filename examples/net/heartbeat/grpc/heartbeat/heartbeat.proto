@@ -1,0 +1,19 @@
+syntax = "proto3";
+
+package heartbeat;
+
+option go_package = "github.com/pysugar/wheels/examples/net/heartbeat/grpc/heartbeat";
+
+message HeartbeatRequest {
+  string message = 1;
+}
+
+message HeartbeatResponse {
+  string message = 1;
+}
+
+service HeartbeatService {
+  rpc Heartbeat(HeartbeatRequest) returns (HeartbeatResponse);
+}
+
+
