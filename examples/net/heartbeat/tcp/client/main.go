@@ -66,7 +66,11 @@ func reader(conn net.Conn, messageChan chan<- string, heartbeatResponseChan chan
 
 	rd := bufio.NewReader(conn)
 	for {
+		conn.SetReadDeadline(time.Now().Add(15 * time.Second))
 		line, err := rd.ReadString('\n')
+		// 重置截止时间
+		conn.SetReadDeadline(time.Time{})
+
 		if err != nil {
 			if errors.Is(err, io.EOF) {
 				fmt.Println("Connection closed by remote")
