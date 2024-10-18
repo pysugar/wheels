@@ -2,6 +2,12 @@ package main
 
 import (
 	"context"
+	"log"
+	"net"
+	"os"
+	"time"
+
+	pb "github.com/pysugar/wheels/examples/net/heartbeat/grpc/heartbeat"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/channelz/service"
 	"google.golang.org/grpc/grpclog"
@@ -9,12 +15,6 @@ import (
 	"google.golang.org/grpc/health/grpc_health_v1"
 	"google.golang.org/grpc/keepalive"
 	"google.golang.org/grpc/reflection"
-	"log"
-	"net"
-	"os"
-	"time"
-
-	pb "github.com/pysugar/wheels/examples/net/heartbeat/grpc/heartbeat"
 )
 
 type server struct {

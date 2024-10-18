@@ -2,14 +2,19 @@ package main
 
 import (
 	"context"
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/grpclog"
-	"google.golang.org/grpc/keepalive"
 	"log"
 	"os"
 	"time"
 
 	pb "github.com/pysugar/wheels/examples/net/heartbeat/grpc/heartbeat"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/grpclog"
+	"google.golang.org/grpc/keepalive"
+)
+
+const (
+	address           = "localhost:50051"
+	heartbeatInterval = 10 * time.Second
 )
 
 func main() {
@@ -22,22 +27,39 @@ func main() {
 		PermitWithoutStream: true,
 	}
 
-	conn, err := grpc.Dial("localhost:50051", grpc.WithInsecure(), grpc.WithKeepaliveParams(ka))
+	conn, err := grpc.Dial(address, grpc.WithInsecure(), grpc.WithKeepaliveParams(ka))
 	if err != nil {
 		log.Fatalf("Failed to connect: %v", err)
 	}
 	defer conn.Close()
 
 	client := pb.NewHeartbeatServiceClient(conn)
+	appCtx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	go startHeartbeat(appCtx, client)
+
+	select {}
+}
+
+func startHeartbeat(ctx context.Context, client pb.HeartbeatServiceClient) {
+	ticker := time.NewTicker(heartbeatInterval)
+	defer ticker.Stop()
 
 	for {
-		heartbeat(client)
-		time.Sleep(10 * time.Second)
+		select {
+		case v, ok := <-ctx.Done():
+			log.Printf("exit heartbeat since context done, v: %v(%v)\n", v, ok)
+			return
+		case v, ok := <-ticker.C:
+			log.Printf("[%v]Tick start: %v\n", v, ok)
+			doHeartbeat(ctx, client)
+		}
 	}
 }
 
-func heartbeat(client pb.HeartbeatServiceClient) {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+func doHeartbeat(appCtx context.Context, client pb.HeartbeatServiceClient) {
+	ctx, cancel := context.WithTimeout(appCtx, 5*time.Second)
 	defer cancel()
 
 	res, err := client.Heartbeat(ctx, &pb.HeartbeatRequest{Message: "PING"})
