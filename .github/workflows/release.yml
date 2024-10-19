@@ -27,8 +27,9 @@ jobs:
         env:
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
+        working-directory: ./cmd
         run: |
-          go build -v -o netool-${{ matrix.goos }}-${{ matrix.goarch }} ./cmd/main
+          go build -v -o ../netool-${{ matrix.goos }}-${{ matrix.goarch }} ./main
 
       - name: Upload artifact
         uses: actions/upload-artifact@v3

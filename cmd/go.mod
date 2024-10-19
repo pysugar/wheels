@@ -1,6 +1,6 @@
 module github.com/pysugar/wheels/cmd
 
-go 1.23.2
+go 1.21
 
 replace github.com/pysugar/wheels => ../
 
