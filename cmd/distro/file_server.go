@@ -16,7 +16,12 @@ Start a File Server.
 
 Start file server: netool fileserver --dir=. --port=8088
 `,
-	Run: RunFileServer,
+	Run: func(cmd *cobra.Command, args []string) {
+		sharedDirectory, _ := cmd.Flags().GetString("dir")
+		port, _ := cmd.Flags().GetInt("port")
+
+		RunFileServer(sharedDirectory, port)
+	},
 }
 
 func init() {
@@ -24,10 +29,7 @@ func init() {
 	fileServerCmd.Flags().StringP("dir", "d", ".", "file server directory")
 }
 
-func RunFileServer(cmd *cobra.Command, args []string) {
-	sharedDirectory, _ := cmd.Flags().GetString("dir")
-	port, _ := cmd.Flags().GetInt("port")
-
+func RunFileServer(sharedDirectory string, port int) {
 	absPath, err := filepath.Abs(sharedDirectory)
 	if err != nil {
 		fmt.Printf("%s is not exists: %v\n", sharedDirectory, err)
