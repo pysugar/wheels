@@ -26,13 +26,13 @@ jobs:
           GOARCH: ${{ matrix.goarch }}
         working-directory: ./cmd
         run: |
-          go build -v -o ../netool-${{ matrix.goos }}-${{ matrix.goarch }} ./main
+          go build -v -o ./netool-${{ matrix.goos }}-${{ matrix.goarch }} ./main
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: netool-${{ matrix.goos }}-${{ matrix.goarch }}
-          path: ../netool-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: ./netool-${{ matrix.goos }}-${{ matrix.goarch }}
 
   release:
     needs: build
