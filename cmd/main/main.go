@@ -5,6 +5,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/pysugar/wheels/cmd/base"
+	_ "github.com/pysugar/wheels/cmd/distro"
 	_ "github.com/pysugar/wheels/cmd/subcmds"
 )
 
