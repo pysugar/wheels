@@ -36,11 +36,21 @@ func RunFileServer(cmd *cobra.Command, args []string) {
 
 	fileServer := http.FileServer(http.Dir(absPath))
 
-	http.Handle("/", http.StripPrefix("/", fileServer))
+	http.Handle("/", http.StripPrefix("/", noCacheMiddleware(fileServer)))
 
-	fmt.Printf("fileserver is running,\n\tdirectory: %s，\n\taddress: http://<your-ip>:%d\n", absPath, port)
+	fmt.Printf("fileserver is running,\n\tdirectory:\t%s \n\taddress:\thttp://<your-ip>:%d\n", absPath, port)
 
 	if er := http.ListenAndServe(fmt.Sprintf(":%d", port), nil); er != nil {
 		fmt.Printf("server start server: %s\n", er)
 	}
+}
+
+func noCacheMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// 设置 HTTP 头部，禁止浏览器缓存
+		w.Header().Set("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
+		w.Header().Set("Pragma", "no-cache")
+		w.Header().Set("Expires", "0")
+		next.ServeHTTP(w, r)
+	})
 }
