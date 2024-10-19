@@ -27,12 +27,13 @@ jobs:
         working-directory: ./cmd
         run: |
           go build -v -o ./netool-${{ matrix.goos }}-${{ matrix.goarch }} ./main
+          tar -czvf netool-${{ matrix.goos }}-${{ matrix.goarch }}.tar.gz netool-${{ matrix.goos }}-${{ matrix.goarch }}
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: netool-${{ matrix.goos }}-${{ matrix.goarch }}
-          path: cmd/netool-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: cmd/netool-${{ matrix.goos }}-${{ matrix.goarch }}.tar.gz
 
   release:
     needs: build
@@ -46,11 +47,6 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           path: ./artifacts
-
-      - name: Move files to artifacts directory
-        run: |
-          find ./artifacts -mindepth 2 -type f -exec mv {} ./artifacts/ \;
-          find ./artifacts -type d -empty -delete
 
       - name: List artifacts
         run: ls -l ./artifacts
