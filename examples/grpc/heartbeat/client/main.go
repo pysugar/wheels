@@ -3,12 +3,12 @@ package main
 import (
 	"context"
 	"fmt"
-	grpc_prometheus "github.com/grpc-ecosystem/go-grpc-prometheus"
-	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"net/http"
 	"os"
 	"time"
 
+	grpcprometheus "github.com/grpc-ecosystem/go-grpc-prometheus"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/channelz/grpc_channelz_v1"
 	"google.golang.org/grpc/grpclog"
@@ -37,8 +37,8 @@ func main() {
 		grpc.WithInsecure(),
 		grpc.WithKeepaliveParams(kaParams),
 		grpc.WithBlock(),
-		grpc.WithUnaryInterceptor(grpc_prometheus.UnaryClientInterceptor),
-		grpc.WithStreamInterceptor(grpc_prometheus.StreamClientInterceptor),
+		grpc.WithUnaryInterceptor(grpcprometheus.UnaryClientInterceptor),
+		grpc.WithStreamInterceptor(grpcprometheus.StreamClientInterceptor),
 	)
 	if err != nil {
 		logger.Fatalf("Did not connect: %v", err)

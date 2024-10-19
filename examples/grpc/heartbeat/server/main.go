@@ -2,6 +2,11 @@ package main
 
 import (
 	"context"
+	"net"
+	"net/http"
+	"os"
+	"time"
+
 	grpcprometheus "github.com/grpc-ecosystem/go-grpc-prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"google.golang.org/grpc"
@@ -11,11 +16,6 @@ import (
 	"google.golang.org/grpc/health/grpc_health_v1"
 	"google.golang.org/grpc/keepalive"
 	"google.golang.org/grpc/reflection"
-
-	"net"
-	"net/http"
-	"os"
-	"time"
 )
 
 const (

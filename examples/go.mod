@@ -1,6 +1,6 @@
 module github.com/pysugar/wheels/examples
 
-go 1.23.1
+go 1.21
 
 replace github.com/pysugar/wheels => ../
 
@@ -12,7 +12,7 @@ require (
 require (
 	github.com/gorilla/websocket v1.5.3
 	github.com/grpc-ecosystem/go-grpc-prometheus v1.2.0
-	github.com/pires/go-proxyproto v0.7.0
+	github.com/pires/go-proxyproto v0.8.0
 	github.com/prometheus/client_golang v1.20.5
 	google.golang.org/grpc v1.67.1
 )

@@ -1,11 +1,11 @@
 module github.com/pysugar/wheels
 
-go 1.23.1
+go 1.21
 
 require (
 	github.com/golang/mock v1.6.0
 	github.com/google/go-cmp v0.6.0
-	github.com/pires/go-proxyproto v0.7.0
+	github.com/pires/go-proxyproto v0.8.0
 	github.com/sagernet/sing v0.4.3
 	github.com/stretchr/testify v1.9.0
 	golang.org/x/sync v0.2.0

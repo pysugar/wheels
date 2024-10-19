@@ -1,7 +1,12 @@
 # gRPC 相关概念
 
 
+
 ### grpc-go
+
+```
+Client Application --> ClientConn --> Resolver --> Balancer --> ClientTransport --> Stream --> Server
+```
 
 #### **ClientConn 和 Server**：
 
