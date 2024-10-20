@@ -1,8 +1,12 @@
-package distro
+package servicegovernance
 
 import (
 	"context"
+	"fmt"
 	"log"
+	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	clientv3 "go.etcd.io/etcd/client/v3"
@@ -24,14 +28,35 @@ type (
 	}
 )
 
-func newEtcdClient(endpoints []string) (*clientv3.Client, error) {
-	client, err := clientv3.New(clientv3.Config{
-		Endpoints: endpoints,
-	})
+func RegisterETCD(endpoints []string, envName, serviceName, address string) error {
+	client, err := newEtcdClient(endpoints)
 	if err != nil {
-		return nil, err
+		log.Printf("unexpected err: %v\n", err)
+		return err
 	}
-	return client, err
+
+	appCtx := context.Background()
+	registrar := NewEtcdRegistry(client)
+	err = registrar.Register(appCtx, &Instance{
+		ServiceName: serviceName,
+		Env:         envName,
+		Endpoint:    Endpoint{Address: address, Group: DefaultGroup},
+	})
+
+	if err != nil {
+		log.Printf("register err: %v\n", err)
+		return err
+	}
+
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, os.Interrupt, syscall.SIGQUIT, syscall.SIGSTOP)
+	sig := <-sigCh
+	if er := registrar.Deregister(appCtx); er != nil {
+		log.Printf("Deregister failure: \n", er)
+	}
+	fmt.Printf("\nReceived signal: %v. Exiting...\n", sig)
+
+	return nil
 }
 
 func NewEtcdRegistry(cli *clientv3.Client) Registrar {
