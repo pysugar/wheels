@@ -4,7 +4,10 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"os"
+	"os/signal"
 	"strings"
+	"syscall"
 	"time"
 
 	clientv3 "go.etcd.io/etcd/client/v3"
@@ -17,7 +20,7 @@ type (
 	}
 )
 
-func DiscoverGetETCD(etcdEndpoints []string, envName, serviceName, group string) ([]*Endpoint, error) {
+func DiscoverETCD(etcdEndpoints []string, envName, serviceName, group string, watchEnabled bool) ([]*Endpoint, error) {
 	client, err := newEtcdClient(etcdEndpoints)
 	if err != nil {
 		log.Printf("unexpected err: %v\n", err)
@@ -25,21 +28,67 @@ func DiscoverGetETCD(etcdEndpoints []string, envName, serviceName, group string)
 	}
 
 	serviceWithEnv := fmt.Sprintf("/%s/%s", envName, serviceName)
-	serviceKeyPrefix := fmt.Sprintf("%s/", serviceWithEnv)
+	serviceDiscoverKey := fmt.Sprintf("%s/", serviceWithEnv)
 	if group != DefaultGroup && group != "" {
-		serviceKeyPrefix = fmt.Sprintf("%s:%s/", serviceWithEnv, group)
+		serviceDiscoverKey = fmt.Sprintf("%s:%s/", serviceWithEnv, group)
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 
 	discoverer := NewEtcdDiscoverer(client)
-	endpoints, err := discoverer.Get(ctx, serviceKeyPrefix)
-	if err != nil {
-		log.Printf("unexpected err: %v\n", err)
-		return nil, err
+	if watchEnabled {
+		endpoints, watcher, er := discoverer.Watch(ctx, serviceDiscoverKey)
+		if er != nil {
+			log.Printf("discover watch err: %v\n", er)
+			return nil, err
+		}
+		log.Printf("[%s] updateState\n", watcher.Service())
+		for _, ep := range endpoints {
+			log.Printf("\t[%s] endpoint (%s - %s)\n", watcher.Service(), ep.Address, ep.Group)
+		}
+
+		go watching(ctx, watcher)
+
+		sigCh := make(chan os.Signal, 1)
+		signal.Notify(sigCh, os.Interrupt, syscall.SIGQUIT, syscall.SIGTERM)
+		sig := <-sigCh
+
+		if cerr := watcher.Close(); cerr != nil {
+			log.Printf("close wathcer error:%v \n", cerr)
+		}
+		log.Printf("[%s] discover watch received signal: %v, exiting...\n", watcher.Service(), sig)
+		return endpoints, nil
+	} else {
+		endpoints, er := discoverer.Get(ctx, serviceDiscoverKey)
+		if er != nil {
+			log.Printf("discover get err: %v\n", er)
+			return nil, er
+		}
+		return endpoints, nil
 	}
-	return endpoints, nil
+}
+
+func watching(ctx context.Context, watcher Watcher) {
+	for {
+		select {
+		case <-ctx.Done():
+			log.Printf("discoverer watching done")
+			return
+		default:
+		}
+
+		endpoints, err := watcher.Next()
+		if err != nil {
+			time.Sleep(time.Second)
+			log.Printf("discoverer watching error: %v\n", err)
+			continue
+		}
+		log.Printf("[%s] updateState\n", watcher.Service())
+		for _, ep := range endpoints {
+			log.Printf("\t[%s] endpoint (%s - %s)\n", watcher.Service(), ep.Address, ep.Group)
+		}
+	}
 }
 
 func NewEtcdDiscoverer(cli *clientv3.Client) Discoverer {
@@ -48,12 +97,12 @@ func NewEtcdDiscoverer(cli *clientv3.Client) Discoverer {
 	}
 }
 
-func (d *etcdDiscoverer) Get(ctx context.Context, serviceKeyPrefix string) ([]*Endpoint, error) {
-	serviceDiscoveryKey, feature := parseServiceGroup(serviceKeyPrefix)
+func (d *etcdDiscoverer) Get(ctx context.Context, serviceDiscoverKey string) ([]*Endpoint, error) {
+	serviceRegisterKey, group := parseServiceGroup(serviceDiscoverKey)
 
-	resp, err := d.cli.Get(ctx, serviceDiscoveryKey, clientv3.WithPrefix())
+	resp, err := d.cli.Get(ctx, serviceRegisterKey, clientv3.WithPrefix())
 	if err != nil {
-		log.Printf("get service %s failure: %v\n", serviceKeyPrefix, err)
+		log.Printf("get service %s failure: %v\n", serviceDiscoverKey, err)
 		return nil, err
 	}
 
@@ -62,15 +111,17 @@ func (d *etcdDiscoverer) Get(ctx context.Context, serviceKeyPrefix string) ([]*E
 	}
 
 	endpoints := etcdInstancesToEndpoints(resp.Kvs)
-	targetEndpoints := make([]*Endpoint, 0)
-	log.Printf("discoverer get %s with fature %s\n", serviceDiscoveryKey, feature)
-	for _, ep := range endpoints {
-		log.Printf("\tendpoint: %v\n", ep)
-		if ep.Group == feature {
-			targetEndpoints = append(targetEndpoints, ep)
-		}
+	return FilterOrDefault(endpoints, group), nil
+}
+
+func (d *etcdDiscoverer) Watch(ctx context.Context, serviceDiscoverKey string) ([]*Endpoint, Watcher, error) {
+	endpoints, err := d.Get(ctx, serviceDiscoverKey)
+	if err != nil {
+		return nil, nil, err
 	}
-	return targetEndpoints, nil
+
+	w := newWatcher(d.cli, serviceDiscoverKey, endpoints, d.rev)
+	return endpoints, w, err
 }
 
 func parseServiceGroup(serviceKeyPrefix string) (string, string) {

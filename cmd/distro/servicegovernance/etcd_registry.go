@@ -49,13 +49,12 @@ func RegisterETCD(endpoints []string, envName, serviceName, address string) erro
 	}
 
 	sigCh := make(chan os.Signal, 1)
-	signal.Notify(sigCh, os.Interrupt, syscall.SIGQUIT, syscall.SIGSTOP)
+	signal.Notify(sigCh, os.Interrupt, syscall.SIGQUIT, syscall.SIGTERM)
 	sig := <-sigCh
 	if er := registrar.Deregister(appCtx); er != nil {
-		log.Printf("Deregister failure: \n", er)
+		log.Printf("deregister failure: %v\n", er)
 	}
-	fmt.Printf("\nReceived signal: %v. Exiting...\n", sig)
-
+	fmt.Printf("[%s] registrar received signal: %v, exiting...\n", serviceName, sig)
 	return nil
 }
 
@@ -95,7 +94,7 @@ func (r *etcdRegistry) Register(appCtx context.Context, instance *Instance) erro
 	r.lease = lgr.ID
 	r.instance = instance
 
-	log.Printf("register success, \n\tresponse: %v \n\tlease: %v\n", pr, lgr)
+	log.Printf("register success\n\tinfo: (%s - %s), \n\tresponse: %v \n\tlease: %v\n", instanceKey, value, pr, lgr)
 
 	go r.keepalive()
 	return nil
@@ -117,32 +116,38 @@ func (r *etcdRegistry) keepalive() {
 		select {
 		case resp, ok := <-r.keepaliveCh:
 			if !ok {
-				log.Printf("etcd keepalive error with resp: %v\n", resp)
+				log.Printf("etcd keepalive channel closed, attempting to retry registration...\n")
+				go r.retry()
+				return
+			} else if resp == nil {
+				log.Printf("etcd keepalive response is nil, retrying registration...\n")
 				go r.retry()
 				return
 			} else {
-				log.Printf("keepalive %v(%v)\n", resp, ok)
+				log.Printf("keepalive successful: %v\n", resp)
 			}
 		case <-r.ctx.Done():
-			log.Printf("keepalive done\n")
+			log.Printf("keepalive context done, exiting keepalive loop\n")
 			return
 		}
 	}
 }
 
 func (r *etcdRegistry) retry() {
-	ticker := time.Tick(retryInterval)
+	ticker := time.NewTicker(retryInterval)
+	defer ticker.Stop()
+
 	for {
 		select {
-		case <-ticker:
+		case <-ticker.C:
 			err := r.Register(context.Background(), r.instance)
 			if err == nil {
-				log.Printf("etcd register success\n")
+				log.Printf("etcd register retry success\n")
 				return
 			}
 			log.Printf("retry register error: %v\n", err)
 		case <-r.ctx.Done():
-			log.Printf("retry while context done\n")
+			log.Printf("retry context done, exiting retry loop\n")
 			return
 		}
 	}

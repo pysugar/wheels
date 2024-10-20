@@ -9,8 +9,8 @@ import (
 )
 
 var (
-	NamingDiscoverGetServices = map[string]servicegovernance.DiscoverGetNamingService{
-		"etcd": servicegovernance.DiscoverGetETCD,
+	NamingDiscoverGetServices = map[string]servicegovernance.DiscoverNamingService{
+		"etcd": servicegovernance.DiscoverETCD,
 	}
 
 	discoveryCmd = &cobra.Command{
@@ -28,11 +28,12 @@ Register a Service: netool discovery --endpoints=127.0.0.1:2379 --env-name=live 
 				endpoints, _ := cmd.Flags().GetString("endpoints")
 				envName, _ := cmd.Flags().GetString("env-name")
 				group, _ := cmd.Flags().GetString("group")
+				watchEnabled, _ := cmd.Flags().GetBool("watch")
 
-				if eps, err := fn(strings.Split(endpoints, ","), envName, serviceName, group); err != nil {
-					log.Printf("register to %s failure: %v\n", namingType, err)
+				if eps, err := fn(strings.Split(endpoints, ","), envName, serviceName, group, watchEnabled); err != nil {
+					log.Printf("discover to %s failure: %v\n", namingType, err)
 				} else {
-					log.Printf("discover /%s/%s:%s/:\n", envName, serviceName, group)
+					log.Printf("discover (watch: %v) /%s/%s:%s/:\n", watchEnabled, envName, serviceName, group)
 					for _, ep := range eps {
 						log.Printf("\t%s - %s\n", ep.Address, ep.Group)
 					}
@@ -50,4 +51,5 @@ func init() {
 	discoveryCmd.Flags().StringP("env-name", "e", "live", "env name")
 	discoveryCmd.Flags().StringP("service", "s", "", "your service")
 	discoveryCmd.Flags().StringP("group", "g", "default", "group")
+	discoveryCmd.Flags().BoolP("watch", "w", false, "watch enabled")
 }
