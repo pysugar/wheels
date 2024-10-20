@@ -3,13 +3,14 @@ package distro
 import (
 	"bufio"
 	"fmt"
-	"github.com/spf13/cobra"
 	"io"
 	"log"
 	"net"
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/spf13/cobra"
 )
 
 var httpProxyCmd = &cobra.Command{

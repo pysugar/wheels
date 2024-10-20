@@ -8,7 +8,7 @@ import (
 )
 
 var (
-	NamingServices = map[string]servicegovernance.RegisterNamingService{
+	NamingRegistryServices = map[string]servicegovernance.RegisterNamingService{
 		"etcd": servicegovernance.RegisterETCD,
 	}
 
@@ -23,12 +23,12 @@ Register a Service: netool registry --endpoints=127.0.0.1:2379 --env-name=live -
 ETCDCTL_API=3 etcdctl get '/live/service-name' --endpoints=127.0.0.1:2379 --prefix
 `,
 		Run: func(cmd *cobra.Command, args []string) {
-			namingType, _ := cmd.Flags().GetString("naming_type")
-			if fn, has := NamingServices[namingType]; has {
+			namingType, _ := cmd.Flags().GetString("naming-type")
+			if fn, has := NamingRegistryServices[namingType]; has {
 				serviceName, _ := cmd.Flags().GetString("service")
 				endpoints, _ := cmd.Flags().GetString("endpoints")
 				address, _ := cmd.Flags().GetString("address")
-				envName, _ := cmd.Flags().GetString("env")
+				envName, _ := cmd.Flags().GetString("env-name")
 
 				if err := fn(strings.Split(endpoints, ","), envName, serviceName, address); err != nil {
 					log.Printf("register to %s failure: %v\n", namingType, err)
@@ -42,8 +42,8 @@ ETCDCTL_API=3 etcdctl get '/live/service-name' --endpoints=127.0.0.1:2379 --pref
 
 func init() {
 	registryCmd.Flags().StringP("endpoints", "p", "127.0.0.1:2379", "naming service addresses")
-	registryCmd.Flags().StringP("naming_type", "t", "etcd", "naming service type")
-	registryCmd.Flags().StringP("env", "e", "live", "env name")
+	registryCmd.Flags().StringP("naming-type", "t", "etcd", "naming service type")
+	registryCmd.Flags().StringP("env-name", "e", "live", "env name")
 	registryCmd.Flags().StringP("service", "s", "", "your service")
 	registryCmd.Flags().StringP("address", "a", "", "your service address")
 }
