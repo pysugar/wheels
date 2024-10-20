@@ -14,9 +14,9 @@ var (
 
 	registryCmd = &cobra.Command{
 		Use:   `registry [--naming-type=etcd] [--endpoints=127.0.0.1:2379] [--env-name=live] --service=service-name --address=192.168.1.5:8080`,
-		Short: "Register Service to Registrar",
+		Short: "Register Service to NamingService",
 		Long: `
-Register Service to Registrar.
+Register Service to NamingService.
 
 Register a Service: netool registry --endpoints=127.0.0.1:2379 --env-name=live --service=service-name --address=192.168.1.5:8080
 
