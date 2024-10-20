@@ -2,7 +2,6 @@ package distro
 
 import (
 	"context"
-	"fmt"
 	"log"
 	"time"
 
@@ -12,72 +11,114 @@ import (
 const (
 	ttl           int64 = 10
 	retryInterval       = 5 * time.Second
-	key                 = "/notes-etcd/keepalive"
-	val                 = `{"address":"127.0.0.1:8848","group":"default"}`
 )
 
-func register(client *clientv3.Client, parentCtx context.Context) error {
-	ctx, cancel := context.WithTimeout(context.TODO(), 2*time.Second)
+type (
+	etcdRegistry struct {
+		client      *clientv3.Client
+		ctx         context.Context
+		stop        context.CancelFunc
+		instance    *Instance
+		lease       clientv3.LeaseID
+		keepaliveCh <-chan *clientv3.LeaseKeepAliveResponse
+	}
+)
+
+func newEtcdClient(endpoints []string) (*clientv3.Client, error) {
+	client, err := clientv3.New(clientv3.Config{
+		Endpoints: endpoints,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return client, err
+}
+
+func NewEtcdRegistry(cli *clientv3.Client) Registrar {
+	ctx, cancel := context.WithCancel(context.Background())
+	return &etcdRegistry{
+		client: cli,
+		ctx:    ctx,
+		stop:   cancel,
+	}
+}
+
+func (r *etcdRegistry) Register(appCtx context.Context, instance *Instance) error {
+	ctx, cancel := context.WithTimeout(appCtx, 3*time.Second)
 	defer cancel()
 
-	lgr, err := client.Grant(ctx, ttl)
+	lgr, err := r.client.Grant(ctx, ttl)
 	if err != nil {
-		log.Println(err)
+		log.Printf("register grant fail, err: %v\n", err)
 		return err
 	}
 
-	pr, err := client.Put(ctx, key, val, clientv3.WithLease(lgr.ID))
-	if err != nil {
-		log.Println(err)
-		return err
-	}
-	log.Println("PutResponse:", pr)
+	instanceKey := instance.Key()
+	value := instance.Endpoint.Encode()
 
-	lkaCh, err := client.KeepAlive(context.TODO(), lgr.ID)
+	pr, err := r.client.Put(ctx, instanceKey, value, clientv3.WithLease(lgr.ID))
 	if err != nil {
-		log.Println(err)
+		log.Printf("register put fail, err: %v\n", err)
 		return err
 	}
 
-	keepalive(client, parentCtx, lkaCh)
+	r.keepaliveCh, err = r.client.KeepAlive(context.Background(), lgr.ID)
+	if err != nil {
+		log.Printf("register keepalive fail, err: %v\n", err)
+		return err
+	}
+	r.lease = lgr.ID
+	r.instance = instance
 
+	log.Printf("register success, \n\tresponse: %v \n\tlease: %v\n", pr, lgr)
+
+	go r.keepalive()
 	return nil
 }
 
-func keepalive(client *clientv3.Client, parentCtx context.Context, lkaCh <-chan *clientv3.LeaseKeepAliveResponse) {
-	done := false
-	for !done {
+func (r *etcdRegistry) Deregister(ctx context.Context) error {
+	r.stop()
+
+	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+
+	lrr, err := r.client.Revoke(ctx, r.lease)
+	log.Printf("deregister with revoked (%v, %v)", lrr, err)
+	return err
+}
+
+func (r *etcdRegistry) keepalive() {
+	for {
 		select {
-		case r, ok := <-lkaCh:
-			if !ok || r == nil {
-				fmt.Println("Keepalive closed or lost heartbeat", r, ok)
-				retry(client, parentCtx)
+		case resp, ok := <-r.keepaliveCh:
+			if !ok {
+				log.Printf("etcd keepalive error with resp: %v\n", resp)
+				go r.retry()
+				return
 			} else {
-				fmt.Println("Keepalive ping", r, ok)
+				log.Printf("keepalive %v(%v)\n", resp, ok)
 			}
-		case v, ok := <-parentCtx.Done():
-			fmt.Println("Context done", v, ok)
-			done = true
+		case <-r.ctx.Done():
+			log.Printf("keepalive done\n")
+			return
 		}
 	}
 }
 
-func retry(client *clientv3.Client, parentCtx context.Context) {
-	retryCh := time.Tick(retryInterval)
-loop:
+func (r *etcdRegistry) retry() {
+	ticker := time.Tick(retryInterval)
 	for {
 		select {
-		case t, ok := <-retryCh:
-			err := register(client, parentCtx)
-			if err != nil {
-				fmt.Println("RETRY FAILURE TRY AGAIN:", t, ok)
-			} else {
-				fmt.Println("RETRY SUCCESS:", t, ok)
-				break loop
+		case <-ticker:
+			err := r.Register(context.Background(), r.instance)
+			if err == nil {
+				log.Printf("etcd register success\n")
+				return
 			}
-		case v, ok := <-parentCtx.Done():
-			fmt.Println("Context done", v, ok)
-			break loop
+			log.Printf("retry register error: %v\n", err)
+		case <-r.ctx.Done():
+			log.Printf("retry while context done\n")
+			return
 		}
 	}
 }
