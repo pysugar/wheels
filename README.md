@@ -10,7 +10,13 @@ Usage:
 
 Available Commands:
   completion  Generate the autocompletion script for the specified shell
+  discovery   Discovery Service from NamingService
+  fileserver  Start a File Server
   help        Help about any command
+  httpproxy   Start a Transparent HTTP Proxy
+  rand        Generate Rand String
+  registry    Register Service to NamingService
+  signature   Signature Commands
   uuid        Generate UUIDv4 or UUIDv5
   version     Show current version of Netool
   wg          Generate key pair for wireguard key exchange
