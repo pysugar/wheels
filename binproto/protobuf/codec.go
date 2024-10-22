@@ -1,26 +1,26 @@
 package protobuf
 
 import (
+	"bytes"
 	"encoding/binary"
 	"fmt"
 	"io"
-	"strings"
 )
 
-func readVarint(r io.Reader) (int, error) {
+func readVarint(r io.ByteReader) (int, error) {
 	var result int
 	var shift uint
 	for {
-		var b [1]byte
-		_, err := r.Read(b[:])
+		b, err := r.ReadByte()
 		if err != nil {
 			return 0, err
 		}
 
-		result |= int(b[0]&0x7F) << shift
-		if b[0]&0x80 == 0 {
+		result |= int(b&0x7F) << shift
+		if b&0x80 == 0 { // if b < 0x80 {
 			break
 		}
+
 		shift += 7
 		if shift >= 64 {
 			return 0, fmt.Errorf("varint too long")
@@ -29,7 +29,7 @@ func readVarint(r io.Reader) (int, error) {
 	return result, nil
 }
 
-func readFieldHeader(r io.Reader) (int, int, error) {
+func readFieldHeader(r io.ByteReader) (int, int, error) {
 	tag, err := readVarint(r)
 	if err != nil {
 		return 0, 0, err
@@ -39,59 +39,46 @@ func readFieldHeader(r io.Reader) (int, int, error) {
 	return fieldNumber, wireType, nil
 }
 
-func readFull(r io.Reader, buf []byte) error {
-	total := 0
-	for total < len(buf) {
-		n, err := r.Read(buf[total:])
-		if err != nil {
-			return err
-		}
-		total += n
-	}
-	return nil
-}
-
-func readValue(r io.Reader, wireType int) (interface{}, error) {
+func readValue(r *bytes.Reader, wireType int) (interface{}, error) {
 	switch wireType {
 	case 0: // Varint
 		return readVarint(r)
 	case 1: // 64-bit
-		var b [8]byte
-		err := readFull(r, b[:])
-		if err != nil {
+		var value uint64
+		if err := binary.Read(r, binary.LittleEndian, &value); err != nil {
 			return nil, err
 		}
-		return int64(binary.LittleEndian.Uint64(b[:])), nil
+		return value, nil
 	case 2: // Length-delimited
 		length, err := readVarint(r)
 		if err != nil {
 			return nil, err
 		}
+
 		buf := make([]byte, length)
-		err = readFull(r, buf)
-		if err != nil {
-			return nil, err
+		if _, er := io.ReadFull(r, buf); er != nil {
+			return nil, er
 		}
 		return string(buf), nil
 	case 5: // 32-bit
-		var b [4]byte
-		err := readFull(r, b[:])
-		if err != nil {
+		var value uint32
+		if err := binary.Read(r, binary.LittleEndian, &value); err != nil {
 			return nil, err
 		}
-		return int32(binary.LittleEndian.Uint32(b[:])), nil
+		return value, nil
 	default:
 		return nil, fmt.Errorf("unsupported wire type: %d", wireType)
 	}
 }
 
 func ParseProtoMessage(data []byte) {
-	r := strings.NewReader(string(data))
+	r := bytes.NewReader(data)
 	for {
 		fieldNumber, wireType, err := readFieldHeader(r)
 		if err == io.EOF {
 			break
 		}
+
 		if err != nil {
 			fmt.Println("Error reading field header:", err)
 			break
