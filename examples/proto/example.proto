@@ -1,0 +1,56 @@
+syntax = "proto3";
+
+package proto;
+option go_package = "github.com/pysugar/wheels/examples/proto";
+
+// 枚举类型示例
+enum Status {
+  UNKNOWN = 0;
+  ACTIVE = 1;
+  INACTIVE = 2;
+}
+
+// 主消息类型示例
+message AllTypes {
+  // 基础类型字段
+  int32 field_int32 = 1;
+  int64 field_int64 = 2;
+  uint32 field_uint32 = 3;
+  uint64 field_uint64 = 4;
+  sint32 field_sint32 = 5;
+  sint64 field_sint64 = 6;
+  fixed32 field_fixed32 = 7;
+  fixed64 field_fixed64 = 8;
+  sfixed32 field_sfixed32 = 9;
+  sfixed64 field_sfixed64 = 10;
+  float field_float = 11;
+  double field_double = 12;
+  bool field_bool = 13;
+  string field_string = 14;
+  bytes field_bytes = 15;
+
+  // 复合类型字段
+  Status field_enum = 16;  // 枚举类型
+
+  // 嵌套消息类型
+  message NestedMessage {
+    string nested_field = 1;
+    int32 nested_value = 2;
+  }
+
+  NestedMessage field_nested_message = 17;
+
+  // Repeated 字段（数组/列表）
+  repeated int32 field_repeated_int32 = 18;
+  repeated string field_repeated_string = 19;
+
+  // Map 字段
+  map<string, int32> field_map = 20;
+
+  // Oneof 字段示例
+  oneof optional_value {
+    int32 opt_int32 = 21;
+    string opt_string = 22;
+    NestedMessage opt_nested_message = 23;
+  }
+}

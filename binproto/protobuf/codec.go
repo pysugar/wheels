@@ -7,6 +7,15 @@ import (
 	"io"
 )
 
+var (
+	typeNames = map[int]string{
+		0: "varint",
+		1: "uint64",
+		2: "length-delimited",
+		5: "uint32",
+	}
+)
+
 func readVarint(r io.ByteReader) (int, error) {
 	var result int
 	var shift uint
@@ -59,7 +68,7 @@ func readValue(r *bytes.Reader, wireType int) (interface{}, error) {
 		if _, er := io.ReadFull(r, buf); er != nil {
 			return nil, er
 		}
-		return string(buf), nil
+		return buf, nil
 	case 5: // 32-bit
 		var value uint32
 		if err := binary.Read(r, binary.LittleEndian, &value); err != nil {
@@ -90,6 +99,6 @@ func ParseProtoMessage(data []byte) {
 			break
 		}
 
-		fmt.Printf("Field %d: %v\n", fieldNumber, value)
+		fmt.Printf("Field(%s) %d: %v\n", typeNames[wireType], fieldNumber, value)
 	}
 }
