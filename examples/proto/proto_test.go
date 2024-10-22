@@ -17,6 +17,22 @@ func TestParseRawDesc(t *testing.T) {
 	t.Log(desc, err)
 }
 
+func TestParseRawDesc2(t *testing.T) {
+	rawDesc := file_proto_example_proto_rawDescGZIP()
+	t.Logf("desc length: %d\n", len(rawDesc))
+	desc, err := protobuf.ParseRawProto(rawDesc)
+	t.Log(desc, err)
+}
+
+func TestParseRawDesc3(t *testing.T) {
+	protoMessage := &AllTypes{}
+	rawDesc, _ := protoMessage.Descriptor()
+	t.Logf("desc length: %d\n", len(rawDesc))
+	desc, err := protobuf.ParseRawProto(rawDesc)
+	t.Log(desc, err)
+	t.Log(protoMessage.ProtoReflect().Descriptor())
+}
+
 func TestMarshalExampleProto(t *testing.T) {
 	example := &AllTypes{
 		FieldInt32:    1,

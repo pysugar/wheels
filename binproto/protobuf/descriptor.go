@@ -28,6 +28,7 @@ func ParseRawProto(rawDesc []byte) (*descriptorpb.FileDescriptorProto, error) { 
 			log.Printf("failed to decompress proto_rawDesc: %v", err)
 			return nil, err
 		}
+		log.Printf("decompress data success (%d -> %d)\n", len(rawDesc), len(decompressedBytes))
 	}
 
 	fileDescriptor := &descriptorpb.FileDescriptorProto{}
