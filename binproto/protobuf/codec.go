@@ -99,6 +99,10 @@ func ParseProtoMessage(data []byte) {
 			break
 		}
 
-		fmt.Printf("Field(%s) %d: %v\n", typeNames[wireType], fieldNumber, value)
+		if wireType == 2 {
+			fmt.Printf("Field(%s) %d: %s\n", typeNames[wireType], fieldNumber, value)
+		} else {
+			fmt.Printf("Field(%s) %d: %v\n", typeNames[wireType], fieldNumber, value)
+		}
 	}
 }
