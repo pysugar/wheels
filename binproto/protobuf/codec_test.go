@@ -19,6 +19,5 @@ func TestParseAllTypes(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to read file: %v\n", err)
 	}
-
 	protobuf.ParseProtoMessage(data)
 }

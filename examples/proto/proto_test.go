@@ -1,16 +1,24 @@
-package proto_test
+package proto
 
 import (
-	pb "github.com/pysugar/wheels/examples/proto"
-	"google.golang.org/protobuf/proto"
 	"log"
 	"math/rand"
 	"os"
 	"testing"
+
+	"github.com/pysugar/wheels/binproto/protobuf"
+	"google.golang.org/protobuf/proto"
 )
 
+func TestParseRawDesc(t *testing.T) {
+	rawDesc := file_proto_example_proto_rawDescData
+	t.Logf("desc length: %d\n", len(rawDesc))
+	desc, err := protobuf.ParseRawProto(rawDesc)
+	t.Log(desc, err)
+}
+
 func TestMarshalExampleProto(t *testing.T) {
-	example := &pb.AllTypes{
+	example := &AllTypes{
 		FieldInt32:    1,
 		FieldInt64:    2,
 		FieldUint32:   3,
@@ -26,8 +34,8 @@ func TestMarshalExampleProto(t *testing.T) {
 		FieldBool:     true,
 		FieldString:   "string_field",
 		FieldBytes:    []byte{'h', 'e', 'l', 'l', 'o'},
-		FieldEnum:     pb.Status(rand.Intn(3)),
-		FieldNestedMessage: &pb.AllTypes_NestedMessage{
+		FieldEnum:     Status(rand.Intn(3)),
+		FieldNestedMessage: &AllTypes_NestedMessage{
 			NestedField: "NestedRandom",
 			NestedValue: 16,
 		},
@@ -37,7 +45,7 @@ func TestMarshalExampleProto(t *testing.T) {
 			"Key1": 33,
 			"Key2": 34,
 		},
-		OptionalValue: &pb.AllTypes_OptInt32{OptInt32: 35},
+		OptionalValue: &AllTypes_OptInt32{OptInt32: 35},
 	}
 
 	data, err := proto.Marshal(example)
