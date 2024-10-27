@@ -6,10 +6,10 @@ import (
 	"encoding/base64"
 	"encoding/binary"
 	"fmt"
+	"golang.org/x/net/http2/hpack"
 	"io"
 	"log"
 	"net"
-	"net/http"
 	"net/url"
 	"strings"
 	"sync/atomic"
@@ -21,8 +21,10 @@ import (
 )
 
 type (
-	fetchClient struct {
+	fetcher struct {
 		userAgent string
+		method    string
+		grpc      bool
 	}
 )
 
@@ -42,9 +44,26 @@ fetch http2 response from url: netool fetch https://www.google.com
 				return
 			}
 
+			isGRPC, _ := cmd.Flags().GetBool("grpc")
+			method, _ := cmd.Flags().GetString("method")
+
 			targetURL, err := url.Parse(args[0])
 			if err != nil {
 				log.Printf("invalid url %s\n", args[0])
+				return
+			}
+
+			fetcher := &fetcher{
+				grpc:   isGRPC,
+				method: method,
+			}
+
+			if err := fetcher.callHTTP2(targetURL); err != nil {
+				log.Printf("Call HTTP/2 request %s failure: %v\n", targetURL, err)
+				return
+			}
+
+			if strings.EqualFold("POST", method) || strings.EqualFold("GET", method) {
 				return
 			}
 
@@ -153,8 +172,84 @@ fetch http2 response from url: netool fetch https://www.google.com
 )
 
 func init() {
-	fetchCmd.Flags().StringP("user-agent", "A", "netool-fetch", "proto binary file")
+	fetchCmd.Flags().StringP("user-agent", "A", "netool-fetch", "User Agent")
+	fetchCmd.Flags().StringP("method", "M", "GET", "HTTP Method")
+	fetchCmd.Flags().BoolP("grpc", "G", false, "Is GRPC Request Or Not")
 	base.AddSubCommands(fetchCmd)
+}
+
+func (f *fetcher) callHTTP2(parsedURL *url.URL) error {
+	conn, err := dialConn(parsedURL)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+
+	clientPreface := []byte("PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n")
+	err = http2.WriteSettingsFrame(conn, clientPreface)
+	if err != nil {
+		log.Println("Failed to send HTTP/2 Client Preface:", err)
+		return err
+	}
+
+	doneCh := make(chan struct{})
+	go func() {
+		defer close(doneCh)
+		f.readLoop(conn)
+	}()
+
+	err = f.sendRequestHTTP2(conn, parsedURL)
+	if err != nil {
+		log.Println("Failed to send HTTP/2 request:", err)
+		return err
+	}
+	log.Printf("< Send HTTP/2 request done, url: %v\n", parsedURL)
+	<-doneCh
+	return nil
+}
+
+func (f *fetcher) readLoop(conn net.Conn) {
+	if err := conn.SetReadDeadline(time.Now().Add(30 * time.Second)); err != nil {
+		log.Printf("SetReadDeadline err: %v\n", err)
+	}
+	if err := http2.ReadFrames(conn); err != nil {
+		log.Printf("read conn err: %v\n", err)
+	}
+	log.Printf("Receive HTTP/2 response done >\n")
+}
+
+func (f *fetcher) sendRequestHTTP2(conn net.Conn, parsedURL *url.URL) error {
+	var headers []hpack.HeaderField
+	if f.grpc {
+		userAgent := "grpc-go-client/1.0"
+		if f.userAgent != "" {
+			userAgent = f.userAgent
+		}
+		headers = []hpack.HeaderField{
+			{Name: ":method", Value: "POST"},
+			{Name: ":scheme", Value: parsedURL.Scheme},
+			{Name: ":authority", Value: parsedURL.Host},
+			{Name: ":path", Value: parsedURL.RequestURI()},
+			{Name: "content-type", Value: "application/grpc"},
+			{Name: "te", Value: "trailers"},
+			{Name: "user-agent", Value: userAgent},
+		}
+	} else {
+		headers = []hpack.HeaderField{
+			{Name: ":method", Value: strings.ToUpper(f.method)},
+			{Name: ":scheme", Value: parsedURL.Scheme},
+			{Name: ":authority", Value: parsedURL.Host},
+			{Name: ":path", Value: parsedURL.RequestURI()},
+			{Name: "accept", Value: "*/*"},
+			{Name: "user-agent", Value: f.userAgent},
+		}
+	}
+
+	if err := http2.WriteHeadersFrame(conn, atomic.AddUint32(&streamID, 2), headers); err != nil {
+		return err
+	}
+	log.Println("Sent HTTP/2 request headers")
+	return nil
 }
 
 func sendUpgradeRequestHTTP1(conn net.Conn, parsedURL *url.URL) error {
@@ -247,22 +342,22 @@ func sendSettingsFrame(conn net.Conn) error {
 }
 
 func sendRequestHTTP2(conn net.Conn, parsedURL *url.URL) error {
-	path := parsedURL.RequestURI()
-	host := parsedURL.Host
-
-	headers := http.Header{
-		":method":    {"GET"},
-		":scheme":    {parsedURL.Scheme},
-		":authority": {host},
-		":path":      {path},
-		":accept":    {"*/*"},
-	}
-
-	if err := http2.WriteHeadersFrame(conn, atomic.AddUint32(&streamID, 2), headers); err != nil {
-		return err
-	}
-
-	log.Println("Sent HTTP/2 request headers")
+	//path := parsedURL.RequestURI()
+	//host := parsedURL.Host
+	//
+	//headers := http.Header{
+	//	":method":    {"GET"},
+	//	":scheme":    {parsedURL.Scheme},
+	//	":authority": {host},
+	//	":path":      {path},
+	//	":accept":    {"*/*"},
+	//}
+	//
+	//if err := http2.WriteHeadersFrame(conn, atomic.AddUint32(&streamID, 2), headers); err != nil {
+	//	return err
+	//}
+	//
+	//log.Println("Sent HTTP/2 request headers")
 	return nil
 }
 

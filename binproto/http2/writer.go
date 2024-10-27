@@ -8,8 +8,6 @@ import (
 	"io"
 	"log"
 	"net"
-	"net/http"
-	"strings"
 )
 
 var (
@@ -44,39 +42,26 @@ func sendDataFrame(conn net.Conn, data []byte) {
 	log.Println("Sent DATA frame")
 }
 
-func WriteHeadersFrame(w io.Writer, streamID uint32, headers http.Header) error {
+func WriteHeadersFrame(w io.Writer, streamID uint32, headers []hpack.HeaderField) error {
 	var headersBuffer bytes.Buffer
 	encoder := hpack.NewEncoder(&headersBuffer)
-	for name, values := range headers {
-		if len(values) > 0 {
-			if _, ok := specialHeaders[name]; ok {
-				for _, val := range values {
-					err := encoder.WriteField(hpack.HeaderField{
-						Name:  name,
-						Value: val,
-					})
-					if err != nil {
-						log.Printf("failed to encode header field: %v", err)
-					}
-				}
-			} else {
-				err := encoder.WriteField(hpack.HeaderField{
-					Name:  name,
-					Value: strings.Join(values, ", "),
-				})
-				if err != nil {
-					log.Printf("failed to encode header field: %v", err)
-					continue
-				}
-			}
+	for _, header := range headers {
+		err := encoder.WriteField(hpack.HeaderField{
+			Name:  header.Name,
+			Value: header.Value,
+		})
+		if err != nil {
+			log.Printf("failed to encode header field: %v", err)
+			continue
 		}
+		log.Printf("Send Header %s: %s\n", header.Name, header.Value)
 	}
 
 	headersPayload := headersBuffer.Bytes()
 	length := len(headersPayload)
 
 	var buf [http2frameHeaderLen]byte
-	binary.BigEndian.PutUint32(buf[:4], uint32(length))
+	// binary.BigEndian.PutUint32(buf[:4], uint32(length))
 	buf[0] = byte((length >> 16) & 0xFF) // Length (3 bytes)
 	buf[1] = byte((length >> 8) & 0xFF)
 	buf[2] = byte(length & 0xFF)
@@ -95,7 +80,6 @@ func WriteHeadersFrame(w io.Writer, streamID uint32, headers http.Header) error 
 	} else {
 		log.Printf("Write headers payload success, length = %d\n", n)
 	}
-
 	return nil
 }
 
@@ -162,6 +146,31 @@ func sendSettingsFrame(conn net.Conn) {
 
 	conn.Write(frameHeader)
 	log.Println("Sent SETTINGS frame")
+}
+
+func WriteSettingsFrame(w io.Writer, preface []byte) error {
+	length := len(preface)
+	// Frame Header: Length (3 bytes), Type (1 byte), Flags (1 byte), Stream Identifier (4 bytes)
+	var buf [http2frameHeaderLen]byte
+	buf[0] = byte((length >> 16) & 0xFF) // Length (3 bytes)
+	buf[1] = byte((length >> 8) & 0xFF)
+	buf[2] = byte(length & 0xFF)
+	buf[3] = 0x4                             // Type: SETTINGS (0x4)
+	buf[4] = 0x0                             // Flags
+	binary.BigEndian.PutUint32(buf[5:], 0x0) // Stream ID
+
+	if n, err := w.Write(buf[:]); err != nil {
+		return err
+	} else {
+		log.Printf("Write settings header success, length = %d\n", n)
+	}
+
+	if n, err := w.Write(preface); err != nil {
+		return err
+	} else {
+		log.Printf("Write settings payload success, length = %d\n", n)
+	}
+	return nil
 }
 
 func sendPushPromiseFrame(conn net.Conn) {
