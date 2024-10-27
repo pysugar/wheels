@@ -48,8 +48,7 @@ func ReadFrames(r io.Reader) error {
 		if err != nil {
 			return err
 		}
-
-		log.Printf("Payload(%d): %v\n", length, payload)
+		log.Printf("Payload(%d): %v(%s)\n", length, payload, payload)
 	}
 }
 

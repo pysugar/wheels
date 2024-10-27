@@ -6,6 +6,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"github.com/pysugar/wheels/binproto/http2"
+	"golang.org/x/net/http2/hpack"
 	"log"
 	"net"
 	"net/url"
@@ -49,12 +50,31 @@ fetch http2 response from url: netool fetch https://www.google.com
 		defer conn.Close()
 
 		state := conn.ConnectionState()
-		fmt.Printf("TLS Handshake state: %+v", state)
+		log.Printf("* TLS Handshake state: \n")
+		log.Printf("* \tVersion: %v\n", state.Version)
+		log.Printf("* \tServerName: %v\n", state.ServerName)
+		log.Printf("* \tNegotiatedProtocol: %v\n", state.NegotiatedProtocol)
+		for _, cert := range state.PeerCertificates {
+			log.Printf("* \tCertificate Version: %v\n", cert.Version)
+			log.Printf("* \tCertificate Subject: %v\n", cert.Subject)
+			log.Printf("* \tCertificate Issuer: %v\n", cert.Issuer)
+			log.Printf("* \tCertificate SignatureAlgorithm: %v\n", cert.SignatureAlgorithm)
+			log.Printf("* \tCertificate PublicKeyAlgorithm: %v\n", cert.PublicKeyAlgorithm)
+			log.Printf("* \tCertificate NotBefore: %v\n", cert.NotBefore)
+			log.Printf("* \tCertificate NotAfter: %v\n", cert.NotAfter)
+		}
+
 		if state.NegotiatedProtocol != "h2" {
-			fmt.Println("Failed to negotiate HTTP/2, ALPN Negotiated Protocol:", state.NegotiatedProtocol)
+			log.Println("Failed to negotiate HTTP/2, ALPN Negotiated Protocol:", state.NegotiatedProtocol)
 			return
 		}
 		log.Println("Successfully negotiated HTTP/2")
+
+		err = sendSettingsFrame(conn)
+		if err != nil {
+			log.Printf("Failed to send SETTINGS frame: %v\n", err)
+			return
+		}
 
 		doneCh := make(chan struct{})
 		go func() {
@@ -86,30 +106,46 @@ func reader(conn net.Conn) {
 	}
 }
 
+func sendSettingsFrame(conn *tls.Conn) error {
+	frameHeader := make([]byte, 9)
+	binary.BigEndian.PutUint32(frameHeader[:4], 0x0) // Length (0 bytes)
+	frameHeader[3] = 0x4                             // Type: SETTINGS (0x4)
+	frameHeader[4] = 0x0                             // Flags
+	binary.BigEndian.PutUint32(frameHeader[5:], 0x0) // Stream ID: 0 (connection control frame)
+
+	// Send the SETTINGS frame
+	_, err := conn.Write(frameHeader)
+	if err != nil {
+		return err
+	}
+
+	log.Println("Sent SETTINGS frame successful")
+	return nil
+}
+
 func sendRequest(conn *tls.Conn, parsedURL *url.URL) error {
 	path := parsedURL.RequestURI()
 	host := parsedURL.Host
 
 	// Create HTTP/2 request headers
-	headers := []struct {
-		Name  string
-		Value string
-	}{
-		{":method", "GET"},
-		{":scheme", parsedURL.Scheme},
-		{":path", path},
-		{":authority", host},
-		{"user-agent", "netool-fetch"},
-		{"content-type", "application/json"},
+	headers := []hpack.HeaderField{
+		{Name: ":method", Value: "GET"},
+		{Name: ":scheme", Value: parsedURL.Scheme},
+		{Name: ":authority", Value: host},
+		{Name: ":path", Value: path},
+		{Name: "user-agent", Value: "netool-fetch"},
+		{Name: "accept", Value: "*/*"},
 	}
 
+	fmt.Printf("headers: %v\n", headers)
+
 	var headersBuffer bytes.Buffer
+	encoder := hpack.NewEncoder(&headersBuffer)
 	for _, header := range headers {
-		// Write each header field as: length of name, name, length of value, value
-		headersBuffer.WriteByte(byte(len(header.Name)))
-		headersBuffer.WriteString(header.Name)
-		headersBuffer.WriteByte(byte(len(header.Value)))
-		headersBuffer.WriteString(header.Value)
+		err := encoder.WriteField(header)
+		if err != nil {
+			return fmt.Errorf("failed to encode header field: %v", err)
+		}
 	}
 
 	headersPayload := headersBuffer.Bytes()
