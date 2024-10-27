@@ -49,7 +49,7 @@ func ReadFrames(r io.Reader) error {
 			return err
 		}
 
-		log.Printf("Payload(%d): %s\n", length, payload)
+		log.Printf("Payload(%d): %v\n", length, payload)
 	}
 }
 

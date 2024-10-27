@@ -49,8 +49,9 @@ fetch http2 response from url: netool fetch https://www.google.com
 		defer conn.Close()
 
 		state := conn.ConnectionState()
+		fmt.Printf("TLS Handshake state: %+v", state)
 		if state.NegotiatedProtocol != "h2" {
-			log.Println("Failed to negotiate HTTP/2")
+			fmt.Println("Failed to negotiate HTTP/2, ALPN Negotiated Protocol:", state.NegotiatedProtocol)
 			return
 		}
 		log.Println("Successfully negotiated HTTP/2")
@@ -99,6 +100,7 @@ func sendRequest(conn *tls.Conn, parsedURL *url.URL) error {
 		{":path", path},
 		{":authority", host},
 		{"user-agent", "netool-fetch"},
+		{"content-type", "application/json"},
 	}
 
 	var headersBuffer bytes.Buffer
