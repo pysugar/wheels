@@ -2,6 +2,7 @@ package http2
 
 import (
 	"encoding/binary"
+	"errors"
 	"io"
 	"log"
 )
@@ -27,6 +28,10 @@ func ReadFrames(r io.Reader) error {
 		frameHeader := make([]byte, 9)
 		n, err := io.ReadFull(r, frameHeader)
 		if err != nil {
+			if errors.Is(err, io.EOF) {
+				log.Printf("Read Frames Done: %v\n", err)
+				return nil
+			}
 			log.Printf("Failed to read frame header, length: %d, err: %v\n", n, err)
 			return err
 		}
@@ -36,14 +41,15 @@ func ReadFrames(r io.Reader) error {
 		flags := frameHeader[4]
 		streamID := binary.BigEndian.Uint32(frameHeader[5:9]) & 0x7FFFFFFF
 
-		log.Printf("Received frame: Length=%d, Type=%s, Flags=%d, StreamID=%d\n", length, frameTypes[frameType], flags, streamID)
+		log.Printf("Received frame: Length=%d, Type=%s(%d), Flags=%d, StreamID=%d\n", length,
+			frameTypes[frameType], frameType, flags, streamID)
 
 		payload, err := readPayload(r, length)
 		if err != nil {
 			return err
 		}
 
-		log.Printf("Payload(%d): %s\n", length, string(payload))
+		log.Printf("Payload(%d): %s\n", length, payload)
 	}
 }
 

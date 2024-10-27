@@ -5,8 +5,10 @@ import (
 	"fmt"
 	"github.com/pysugar/wheels/binproto/http2"
 	"log"
+	"net"
 	"net/url"
 	"strings"
+	"time"
 
 	"github.com/pysugar/wheels/cmd/base"
 	"github.com/spf13/cobra"
@@ -52,21 +54,33 @@ fetch http2 response from url: netool fetch https://www.google.com
 		}
 		log.Println("Successfully negotiated HTTP/2")
 
+		doneCh := make(chan struct{})
+		go func() {
+			defer close(doneCh)
+			reader(conn)
+		}()
+
 		err = sendRequest(conn, targetURL)
 		if err != nil {
 			fmt.Println("Failed to send request:", err)
 			return
 		}
 
-		err = http2.ReadFrames(conn)
-		if err != nil {
-			log.Printf("read conn err: %v\n", err)
-		}
+		<-doneCh
 	},
 }
 
 func init() {
 	base.AddSubCommands(fetchCmd)
+}
+
+func reader(conn net.Conn) {
+	if err := conn.SetReadDeadline(time.Now().Add(30 * time.Second)); err != nil {
+		log.Printf("SetReadDeadline err: %v\n", err)
+	}
+	if err := http2.ReadFrames(conn); err != nil {
+		log.Printf("read conn err: %v\n", err)
+	}
 }
 
 func sendRequest(conn *tls.Conn, parsedURL *url.URL) error {
