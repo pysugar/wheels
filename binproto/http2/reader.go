@@ -1,14 +1,17 @@
 package http2
 
 import (
+	"bytes"
 	"encoding/binary"
 	"errors"
+	"golang.org/x/net/http2/hpack"
 	"io"
 	"log"
 )
 
 const (
 	http2frameHeaderLen = 9
+	ack                 = uint8(0x01)
 )
 
 type http2FrameHeader struct {
@@ -44,10 +47,10 @@ var (
 	}
 )
 
-func ReadFrames(r io.Reader) error {
-	// Read frames
+func ReadFrames(rw io.ReadWriter) error {
+	pingCount := 0
 	for {
-		frameHeader, err := readFrameHeader(r)
+		frameHeader, err := readFrameHeader(rw)
 		if err != nil {
 			return err
 		}
@@ -55,11 +58,44 @@ func ReadFrames(r io.Reader) error {
 		log.Printf("Received frame: Length=%d, Type=%s(%d), Flags=%d, StreamID=%d\n", frameHeader.Length,
 			frameTypes[frameHeader.Type], frameHeader.Type, frameHeader.Flags, frameHeader.StreamID)
 
-		payload, err := readFramePayload(r, frameHeader.Length)
+		payload, err := readFramePayload(rw, frameHeader.Length)
 		if err != nil {
 			return err
 		}
 		log.Printf("Payload(%d): %v(%s)\n", frameHeader.Length, payload, payload)
+
+		if frameHeader.Type == 1 {
+			buf := bytes.NewBuffer(payload)
+			decoder := hpack.NewDecoder(4096, func(f hpack.HeaderField) {
+				log.Printf("Decoded Header: %s: %s", f.Name, f.Value)
+			})
+
+			for buf.Len() > 0 {
+				if n, er := decoder.Write(buf.Next(buf.Len())); err != nil {
+					if er == io.EOF {
+						break
+					}
+					log.Printf("failed to decode header field: %v, n = %d\n", err, n)
+					break
+				}
+			}
+		} else if frameHeader.Type == 6 {
+			if pingCount%5 == 0 {
+				if er := WritePingFrame(rw, payload); er != nil {
+					return er
+				}
+			}
+			pingCount++
+		} else if frameHeader.Type == 4 {
+			if (frameHeader.Flags & ack) == ack {
+				log.Printf("Settings ACK: %v\n", frameHeader.Flags)
+			} else {
+				//flags := frameHeader.Flags | ack
+				//if er := WriteSettingsFrame(rw, flags, payload); er != nil {
+				//	return er
+				//}
+			}
+		}
 	}
 }
 

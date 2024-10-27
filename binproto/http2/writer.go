@@ -26,6 +26,29 @@ var (
 	}
 )
 
+func WriteDataFrame(w io.Writer, streamID uint32, body []byte) error {
+	length := len(body)
+	var buf [http2frameHeaderLen]byte
+	buf[0] = byte((length >> 16) & 0xFF) // Length (3 bytes)
+	buf[1] = byte((length >> 8) & 0xFF)
+	buf[2] = byte(length & 0xFF)
+	buf[3] = 0x0                                  // Type: DATA (0x0)
+	buf[4] = 0x1                                  // Flags: END_STREAM (0x1)
+	binary.BigEndian.PutUint32(buf[5:], streamID) // Stream ID: 1
+
+	if n, err := w.Write(buf[:]); err != nil {
+		return err
+	} else {
+		log.Printf("Write data header success, length = %d\n", n)
+	}
+	if n, err := w.Write(body); err != nil {
+		return err
+	} else {
+		log.Printf("Write data payload success, length = %d\n", n)
+	}
+	return nil
+}
+
 func sendDataFrame(conn net.Conn, data []byte) {
 	length := len(data)
 	frameHeader := make([]byte, 9)
@@ -66,7 +89,7 @@ func WriteHeadersFrame(w io.Writer, streamID uint32, headers []hpack.HeaderField
 	buf[1] = byte((length >> 8) & 0xFF)
 	buf[2] = byte(length & 0xFF)
 	buf[3] = 0x1                                  // Type: HEADERS (0x1)
-	buf[4] = 0x5                                  // Flags: END_HEADERS | END_STREAM (0x5)
+	buf[4] = 0x4                                  // Flags: END_HEADERS
 	binary.BigEndian.PutUint32(buf[5:], streamID) // Stream ID (client-initiated, must be odd)
 
 	if n, err := w.Write(buf[:]); err != nil {
@@ -74,7 +97,6 @@ func WriteHeadersFrame(w io.Writer, streamID uint32, headers []hpack.HeaderField
 	} else {
 		log.Printf("Write headers header success, length = %d\n", n)
 	}
-
 	if n, err := w.Write(headersPayload); err != nil {
 		return err
 	} else {
@@ -148,15 +170,15 @@ func sendSettingsFrame(conn net.Conn) {
 	log.Println("Sent SETTINGS frame")
 }
 
-func WriteSettingsFrame(w io.Writer, preface []byte) error {
-	length := len(preface)
+func WriteSettingsFrame(w io.Writer, flags byte, payload []byte) error {
+	length := len(payload)
 	// Frame Header: Length (3 bytes), Type (1 byte), Flags (1 byte), Stream Identifier (4 bytes)
 	var buf [http2frameHeaderLen]byte
 	buf[0] = byte((length >> 16) & 0xFF) // Length (3 bytes)
 	buf[1] = byte((length >> 8) & 0xFF)
 	buf[2] = byte(length & 0xFF)
 	buf[3] = 0x4                             // Type: SETTINGS (0x4)
-	buf[4] = 0x0                             // Flags
+	buf[4] = flags                           // Flags
 	binary.BigEndian.PutUint32(buf[5:], 0x0) // Stream ID
 
 	if n, err := w.Write(buf[:]); err != nil {
@@ -164,11 +186,12 @@ func WriteSettingsFrame(w io.Writer, preface []byte) error {
 	} else {
 		log.Printf("Write settings header success, length = %d\n", n)
 	}
-
-	if n, err := w.Write(preface); err != nil {
-		return err
-	} else {
-		log.Printf("Write settings payload success, length = %d\n", n)
+	if len(payload) > 0 {
+		if n, err := w.Write(payload); err != nil {
+			return err
+		} else {
+			log.Printf("Write settings payload success, length = %d\n", n)
+		}
 	}
 	return nil
 }
@@ -194,6 +217,33 @@ func sendPushPromiseFrame(conn net.Conn) {
 	conn.Write(promisedStreamIDBytes)
 	conn.Write(headersPayload)
 	fmt.Println("Sent PUSH_PROMISE frame")
+}
+
+func WritePingFrame(w io.Writer, payload []byte) error {
+	length := len(payload)
+	if length != 8 {
+		return fmt.Errorf("ping payload should be 8")
+	}
+	var buf [http2frameHeaderLen]byte
+	buf[0] = byte((length >> 16) & 0xFF) // Length (3 bytes)
+	buf[1] = byte((length >> 8) & 0xFF)
+	buf[2] = byte(length & 0xFF)
+	buf[3] = 0x6                             // Type: PING (0x6)
+	buf[4] = 0x0                             // Flags
+	binary.BigEndian.PutUint32(buf[5:], 0x0) // Stream ID
+
+	if n, err := w.Write(buf[:]); err != nil {
+		return err
+	} else {
+		log.Printf("Write ping header success, length = %d\n", n)
+	}
+	if n, err := w.Write(payload[:]); err != nil {
+		return err
+	} else {
+		log.Printf("Write ping payload success, length = %d\n", n)
+	}
+
+	return nil
 }
 
 func sendPingFrame(conn net.Conn) {
