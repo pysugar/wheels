@@ -1,10 +1,31 @@
 package http2
 
 import (
+	"bytes"
 	"encoding/binary"
 	"fmt"
+	"golang.org/x/net/http2/hpack"
+	"io"
 	"log"
 	"net"
+	"net/http"
+	"strings"
+)
+
+var (
+	specialHeaders = map[string]bool{
+		"Set-Cookie":                    true,
+		"Authorization":                 true,
+		"WWW-Authenticate":              true,
+		"Proxy-Authenticate":            true,
+		"Proxy-Authorization":           true,
+		"Warning":                       true,
+		"Link":                          true,
+		"Vary":                          true,
+		"Access-Control-Allow-Headers":  true,
+		"Access-Control-Expose-Headers": true,
+		"Digest":                        true,
+	}
 )
 
 func sendDataFrame(conn net.Conn, data []byte) {
@@ -21,6 +42,61 @@ func sendDataFrame(conn net.Conn, data []byte) {
 	conn.Write(frameHeader)
 	conn.Write(data)
 	log.Println("Sent DATA frame")
+}
+
+func WriteHeadersFrame(w io.Writer, streamID uint32, headers http.Header) error {
+	var headersBuffer bytes.Buffer
+	encoder := hpack.NewEncoder(&headersBuffer)
+	for name, values := range headers {
+		if len(values) > 0 {
+			if _, ok := specialHeaders[name]; ok {
+				for _, val := range values {
+					err := encoder.WriteField(hpack.HeaderField{
+						Name:  name,
+						Value: val,
+					})
+					if err != nil {
+						log.Printf("failed to encode header field: %v", err)
+					}
+				}
+			} else {
+				err := encoder.WriteField(hpack.HeaderField{
+					Name:  name,
+					Value: strings.Join(values, ", "),
+				})
+				if err != nil {
+					log.Printf("failed to encode header field: %v", err)
+					continue
+				}
+			}
+		}
+	}
+
+	headersPayload := headersBuffer.Bytes()
+	length := len(headersPayload)
+
+	var buf [http2frameHeaderLen]byte
+	binary.BigEndian.PutUint32(buf[:4], uint32(length))
+	buf[0] = byte((length >> 16) & 0xFF) // Length (3 bytes)
+	buf[1] = byte((length >> 8) & 0xFF)
+	buf[2] = byte(length & 0xFF)
+	buf[3] = 0x1                                  // Type: HEADERS (0x1)
+	buf[4] = 0x5                                  // Flags: END_HEADERS | END_STREAM (0x5)
+	binary.BigEndian.PutUint32(buf[5:], streamID) // Stream ID (client-initiated, must be odd)
+
+	if n, err := w.Write(buf[:]); err != nil {
+		return err
+	} else {
+		log.Printf("Write headers header success, length = %d\n", n)
+	}
+
+	if n, err := w.Write(headersPayload); err != nil {
+		return err
+	} else {
+		log.Printf("Write headers payload success, length = %d\n", n)
+	}
+
+	return nil
 }
 
 func sendHeadersFrame(conn net.Conn) {

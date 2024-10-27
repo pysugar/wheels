@@ -2,7 +2,6 @@ package subcmds
 
 import (
 	"bufio"
-	"bytes"
 	"crypto/tls"
 	"encoding/base64"
 	"encoding/binary"
@@ -10,6 +9,7 @@ import (
 	"io"
 	"log"
 	"net"
+	"net/http"
 	"net/url"
 	"strings"
 	"sync/atomic"
@@ -18,135 +18,139 @@ import (
 	"github.com/pysugar/wheels/binproto/http2"
 	"github.com/pysugar/wheels/cmd/base"
 	"github.com/spf13/cobra"
-	"golang.org/x/net/http2/hpack"
+)
+
+type (
+	fetchClient struct {
+		userAgent string
+	}
 )
 
 var (
 	streamID = uint32(1)
-)
-
-var fetchCmd = &cobra.Command{
-	Use:   `fetch https://www.google.com`,
-	Short: "fetch http2 response from url",
-	Long: `
+	fetchCmd = &cobra.Command{
+		Use:   `fetch https://www.google.com`,
+		Short: "fetch http2 response from url",
+		Long: `
 fetch http2 response from url
 
 fetch http2 response from url: netool fetch https://www.google.com
 `,
-	Run: func(cmd *cobra.Command, args []string) {
-		if len(args) < 1 {
-			log.Printf("you must specify the url")
-			return
-		}
-
-		targetURL, err := url.Parse(args[0])
-		if err != nil {
-			log.Printf("invalid url %s\n", args[0])
-			return
-		}
-
-		conn, err := dialConn(targetURL)
-		if err != nil {
-			log.Printf("dial conn err: %v\n", err)
-			return
-		}
-		defer conn.Close()
-
-		if c, ok := conn.(*tls.Conn); ok {
-			state := c.ConnectionState()
-			log.Printf("* TLS Handshake state: \n")
-			log.Printf("* \tVersion: %v\n", state.Version)
-			log.Printf("* \tServerName: %v\n", state.ServerName)
-			log.Printf("* \tNegotiatedProtocol: %v\n", state.NegotiatedProtocol)
-			for _, cert := range state.PeerCertificates {
-				log.Printf("* \tCertificate Version: %v\n", cert.Version)
-				log.Printf("* \tCertificate Subject: %v\n", cert.Subject)
-				log.Printf("* \tCertificate Issuer: %v\n", cert.Issuer)
-				log.Printf("* \tCertificate SignatureAlgorithm: %v\n", cert.SignatureAlgorithm)
-				log.Printf("* \tCertificate PublicKeyAlgorithm: %v\n", cert.PublicKeyAlgorithm)
-				log.Printf("* \tCertificate NotBefore: %v\n", cert.NotBefore)
-				log.Printf("* \tCertificate NotAfter: %v\n", cert.NotAfter)
+		Run: func(cmd *cobra.Command, args []string) {
+			if len(args) < 1 {
+				log.Printf("you must specify the url")
+				return
 			}
 
-			if state.NegotiatedProtocol == "h2" {
-				log.Println("Successfully negotiated HTTP/2")
+			targetURL, err := url.Parse(args[0])
+			if err != nil {
+				log.Printf("invalid url %s\n", args[0])
+				return
+			}
 
-				doneCh := make(chan struct{})
-				go func() {
-					defer close(doneCh)
-					readLoop(conn)
-				}()
+			conn, err := dialConn(targetURL)
+			if err != nil {
+				log.Printf("dial conn err: %v\n", err)
+				return
+			}
+			defer conn.Close()
 
-				//err = sendSettingsFrame(conn)
-				//if err != nil {
-				//	log.Printf("Failed to send SETTINGS frame: %v\n", err)
-				//	return
-				//}
-
-				// Send HTTP/2 request after successful upgrade
-				err = sendRequestHTTP2(conn, targetURL)
-				if err != nil {
-					log.Println("Failed to send HTTP/2 request:", err)
-					return
+			if c, ok := conn.(*tls.Conn); ok {
+				state := c.ConnectionState()
+				log.Printf("* TLS Handshake state: \n")
+				log.Printf("* \tVersion: %v\n", state.Version)
+				log.Printf("* \tServerName: %v\n", state.ServerName)
+				log.Printf("* \tNegotiatedProtocol: %v\n", state.NegotiatedProtocol)
+				for _, cert := range state.PeerCertificates {
+					log.Printf("* \tCertificate Version: %v\n", cert.Version)
+					log.Printf("* \tCertificate Subject: %v\n", cert.Subject)
+					log.Printf("* \tCertificate Issuer: %v\n", cert.Issuer)
+					log.Printf("* \tCertificate SignatureAlgorithm: %v\n", cert.SignatureAlgorithm)
+					log.Printf("* \tCertificate PublicKeyAlgorithm: %v\n", cert.PublicKeyAlgorithm)
+					log.Printf("* \tCertificate NotBefore: %v\n", cert.NotBefore)
+					log.Printf("* \tCertificate NotAfter: %v\n", cert.NotAfter)
 				}
 
-				log.Printf("Send request done, url: %v\n", targetURL)
-				<-doneCh
-				return
-			} else if state.NegotiatedProtocol == "http/1.1" {
-				log.Println("Falling back to HTTP/1.1")
+				if state.NegotiatedProtocol == "h2" {
+					log.Println("Successfully negotiated HTTP/2")
+
+					doneCh := make(chan struct{})
+					go func() {
+						defer close(doneCh)
+						readLoop(conn)
+					}()
+
+					//err = sendSettingsFrame(conn)
+					//if err != nil {
+					//	log.Printf("Failed to send SETTINGS frame: %v\n", err)
+					//	return
+					//}
+
+					// Send HTTP/2 request after successful upgrade
+					err = sendRequestHTTP2(conn, targetURL)
+					if err != nil {
+						log.Println("Failed to send HTTP/2 request:", err)
+						return
+					}
+
+					log.Printf("Send request done, url: %v\n", targetURL)
+					<-doneCh
+					return
+				} else if state.NegotiatedProtocol == "http/1.1" {
+					log.Println("Falling back to HTTP/1.1")
+				} else {
+					log.Println("Failed to negotiate HTTP/2, ALPN Negotiated Protocol:", state.NegotiatedProtocol)
+					return
+				}
 			} else {
-				log.Println("Failed to negotiate HTTP/2, ALPN Negotiated Protocol:", state.NegotiatedProtocol)
-				return
-			}
-		} else {
-			// Attempt to upgrade to HTTP/2 (h2c)
-			err = sendUpgradeRequestHTTP1(conn, targetURL)
-			if err != nil {
-				log.Println("Failed to send HTTP/1.1 Upgrade request:", err)
-				return
-			}
-
-			// Read the server's response to the upgrade request
-			upgraded, err := readUpgradeResponse(conn)
-			if err != nil {
-				log.Println("Failed to read upgrade response:", err)
-				return
-			}
-
-			if upgraded {
-				doneCh := make(chan struct{})
-				go func() {
-					defer close(doneCh)
-					readLoop(conn)
-				}()
-
-				// Send HTTP/2 request after successful upgrade
-				err = sendRequestHTTP2(conn, targetURL)
+				// Attempt to upgrade to HTTP/2 (h2c)
+				err = sendUpgradeRequestHTTP1(conn, targetURL)
 				if err != nil {
-					log.Println("Failed to send HTTP/2 request:", err)
+					log.Println("Failed to send HTTP/1.1 Upgrade request:", err)
 					return
 				}
 
-				log.Printf("Send h2c request done, url: %v\n", targetURL)
-				<-doneCh
+				// Read the server's response to the upgrade request
+				upgraded, err := readUpgradeResponse(conn)
+				if err != nil {
+					log.Println("Failed to read upgrade response:", err)
+					return
+				}
+
+				if upgraded {
+					doneCh := make(chan struct{})
+					go func() {
+						defer close(doneCh)
+						readLoop(conn)
+					}()
+
+					// Send HTTP/2 request after successful upgrade
+					err = sendRequestHTTP2(conn, targetURL)
+					if err != nil {
+						log.Println("Failed to send HTTP/2 request:", err)
+						return
+					}
+
+					log.Printf("Send h2c request done, url: %v\n", targetURL)
+					<-doneCh
+					return
+				}
+			}
+
+			log.Println("< start sendRequestHTTP1")
+			// Send HTTP/1.1 request if no upgrade
+			err = sendRequestHTTP1(conn, targetURL)
+			if err != nil {
+				fmt.Println("Failed to send HTTP/1.1 request:", err)
 				return
 			}
-		}
 
-		log.Println("< start sendRequestHTTP1")
-		// Send HTTP/1.1 request if no upgrade
-		err = sendRequestHTTP1(conn, targetURL)
-		if err != nil {
-			fmt.Println("Failed to send HTTP/1.1 request:", err)
-			return
-		}
-
-		// Read HTTP/1.1 response
-		readResponseHTTP1(conn)
-		log.Println("finish readResponseHTTP1 >")
-	},
-}
+			// Read HTTP/1.1 response
+			readResponseHTTP1(conn)
+			log.Println("finish readResponseHTTP1 >")
+		},
+	}
+)
 
 func init() {
 	fetchCmd.Flags().StringP("user-agent", "A", "netool-fetch", "proto binary file")
@@ -246,49 +250,19 @@ func sendRequestHTTP2(conn net.Conn, parsedURL *url.URL) error {
 	path := parsedURL.RequestURI()
 	host := parsedURL.Host
 
-	// Create HTTP/2 request headers
-	headers := []hpack.HeaderField{
-		{Name: ":method", Value: "GET"},
-		{Name: ":scheme", Value: parsedURL.Scheme},
-		{Name: ":authority", Value: host},
-		{Name: ":path", Value: path},
-		{Name: "accept", Value: "*/*"},
+	headers := http.Header{
+		":method":    {"GET"},
+		":scheme":    {parsedURL.Scheme},
+		":authority": {host},
+		":path":      {path},
+		":accept":    {"*/*"},
 	}
 
-	var headersBuffer bytes.Buffer
-	encoder := hpack.NewEncoder(&headersBuffer)
-	for _, header := range headers {
-		err := encoder.WriteField(header)
-		if err != nil {
-			return fmt.Errorf("failed to encode header field: %v", err)
-		}
-	}
-
-	headersPayload := headersBuffer.Bytes()
-	length := len(headersPayload)
-
-	frameHeader := make([]byte, 9)
-	binary.BigEndian.PutUint32(frameHeader[:4], uint32(length))
-	frameHeader[0] = byte((length >> 16) & 0xFF) // Length (3 bytes)
-	frameHeader[1] = byte((length >> 8) & 0xFF)
-	frameHeader[2] = byte(length & 0xFF)
-	frameHeader[3] = 0x1                                                        // Type: HEADERS (0x1)
-	frameHeader[4] = 0x5                                                        // Flags: END_HEADERS | END_STREAM (0x5)
-	binary.BigEndian.PutUint32(frameHeader[5:], atomic.AddUint32(&streamID, 2)) // Stream ID (client-initiated, must be odd)
-
-	log.Printf("[HTTP/2] [%d] OPENED stream for %s\n", streamID, parsedURL)
-	// Send the HEADERS frame
-	_, err := conn.Write(frameHeader)
-	if err != nil {
-		return err
-	}
-	_, err = conn.Write(headersPayload)
-	if err != nil {
+	if err := http2.WriteHeadersFrame(conn, atomic.AddUint32(&streamID, 2), headers); err != nil {
 		return err
 	}
 
 	log.Println("Sent HTTP/2 request headers")
-
 	return nil
 }
 
