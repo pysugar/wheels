@@ -134,7 +134,7 @@ fetch http2 response from url: netool fetch https://www.google.com
 			}
 		}
 
-		log.Println("start sendRequestHTTP1")
+		log.Println("< start sendRequestHTTP1")
 		// Send HTTP/1.1 request if no upgrade
 		err = sendRequestHTTP1(conn, targetURL)
 		if err != nil {
@@ -144,11 +144,12 @@ fetch http2 response from url: netool fetch https://www.google.com
 
 		// Read HTTP/1.1 response
 		readResponseHTTP1(conn)
-		log.Println("finish readResponseHTTP1")
+		log.Println("finish readResponseHTTP1 >")
 	},
 }
 
 func init() {
+	fetchCmd.Flags().StringP("user-agent", "A", "netool-fetch", "proto binary file")
 	base.AddSubCommands(fetchCmd)
 }
 
@@ -168,11 +169,12 @@ func sendUpgradeRequestHTTP1(conn net.Conn, parsedURL *url.URL) error {
 	}
 	http2Settings := base64.StdEncoding.EncodeToString(settings)
 
+	log.Println("< Sent HTTP/1.1 Upgrade request")
 	// Create HTTP/1.1 Upgrade request
 	request := fmt.Sprintf(
 		"GET %s HTTP/1.1\r\n"+
 			"Host: %s\r\n"+
-			"User-Agent: netool-fetch\r\n"+
+			"User-Agent: curl/8.7.1\r\n"+
 			"Accept: */*\r\n"+
 			"Connection: Upgrade, HTTP2-Settings\r\n"+
 			"Upgrade: h2c\r\n"+
@@ -183,7 +185,6 @@ func sendUpgradeRequestHTTP1(conn net.Conn, parsedURL *url.URL) error {
 	if _, err := conn.Write([]byte(request)); err != nil {
 		return err
 	}
-	log.Println("Sent HTTP/1.1 Upgrade request")
 	return nil
 }
 
@@ -193,9 +194,9 @@ func readUpgradeResponse(conn net.Conn) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	log.Print(statusLine)
-
+	log.Printf("Upgrade Status Line: %s", statusLine)
 	if !strings.Contains(statusLine, "101 Switching Protocols") {
+		log.Printf("Fail upgraded to HTTP/2 (h2c) >\n")
 		return false, nil
 	}
 
@@ -211,7 +212,7 @@ func readUpgradeResponse(conn net.Conn) (bool, error) {
 		}
 	}
 
-	fmt.Println("Successfully upgraded to HTTP/2 (h2c)")
+	log.Printf("Successfully upgraded to HTTP/2 (h2c) >\n")
 	return true, nil
 }
 
@@ -251,7 +252,6 @@ func sendRequestHTTP2(conn net.Conn, parsedURL *url.URL) error {
 		{Name: ":scheme", Value: parsedURL.Scheme},
 		{Name: ":authority", Value: host},
 		{Name: ":path", Value: path},
-		{Name: "user-agent", Value: "netool-fetch"},
 		{Name: "accept", Value: "*/*"},
 	}
 
@@ -266,6 +266,7 @@ func sendRequestHTTP2(conn net.Conn, parsedURL *url.URL) error {
 
 	headersPayload := headersBuffer.Bytes()
 	length := len(headersPayload)
+
 	frameHeader := make([]byte, 9)
 	binary.BigEndian.PutUint32(frameHeader[:4], uint32(length))
 	frameHeader[0] = byte((length >> 16) & 0xFF) // Length (3 bytes)
@@ -275,6 +276,7 @@ func sendRequestHTTP2(conn net.Conn, parsedURL *url.URL) error {
 	frameHeader[4] = 0x5                                                        // Flags: END_HEADERS | END_STREAM (0x5)
 	binary.BigEndian.PutUint32(frameHeader[5:], atomic.AddUint32(&streamID, 2)) // Stream ID (client-initiated, must be odd)
 
+	log.Printf("[HTTP/2] [%d] OPENED stream for %s\n", streamID, parsedURL)
 	// Send the HEADERS frame
 	_, err := conn.Write(frameHeader)
 	if err != nil {
@@ -285,7 +287,6 @@ func sendRequestHTTP2(conn net.Conn, parsedURL *url.URL) error {
 		return err
 	}
 
-	log.Printf("[HTTP/2] [%d] OPENED stream for %s\n", streamID, parsedURL)
 	log.Println("Sent HTTP/2 request headers")
 
 	return nil
@@ -296,18 +297,25 @@ func sendRequestHTTP1(conn net.Conn, parsedURL *url.URL) error {
 	path := parsedURL.RequestURI()
 
 	// Create HTTP/1.1 request
-	request := fmt.Sprintf("GET %s HTTP/1.1\r\nHost: %s\r\ncontent-type: application/json; charset=utf-8\r\nUser-Agent: netool-fetch\r\nAccept: */*\r\nConnection: close\r\n\r\n", path, host)
+	request := fmt.Sprintf("GET %s HTTP/1.1\r\n"+
+		"Host: %s\r\n"+
+		"Accept: */*\r\n"+
+		"Connection: close\r\n"+
+		"\r\n", path, host)
+
+	log.Println("Sent HTTP/1.1 request")
 	log.Println(request)
 	_, err := conn.Write([]byte(request))
 	if err != nil {
 		return err
 	}
-	log.Println("Sent HTTP/1.1 request")
 	return nil
 }
 
 func readResponseHTTP1(conn net.Conn) {
 	reader := bufio.NewReader(conn)
+
+	log.Println("Reading response headers:")
 	for {
 		line, err := reader.ReadString('\n')
 		if err != nil {
@@ -328,6 +336,7 @@ func readResponseHTTP1(conn net.Conn) {
 		line, err := reader.ReadString('\n')
 		if err != nil {
 			if err == io.EOF {
+				log.Print(line)
 				break
 			}
 			log.Println("Failed to read response body:", err)
