@@ -1,13 +1,14 @@
 package subcmds
 
 import (
+	"bytes"
 	"crypto/tls"
+	"encoding/binary"
 	"fmt"
 	"github.com/pysugar/wheels/binproto/http2"
 	"log"
 	"net"
 	"net/url"
-	"strings"
 	"time"
 
 	"github.com/pysugar/wheels/cmd/base"
@@ -66,6 +67,7 @@ fetch http2 response from url: netool fetch https://www.google.com
 			return
 		}
 
+		log.Printf("Send request done, url: %v\n", targetURL)
 		<-doneCh
 	},
 }
@@ -88,27 +90,50 @@ func sendRequest(conn *tls.Conn, parsedURL *url.URL) error {
 	host := parsedURL.Host
 
 	// Create HTTP/2 request headers
-	headers := []string{
-		fmt.Sprintf(":method: %s", "GET"),
-		fmt.Sprintf(":scheme: %s", parsedURL.Scheme),
-		fmt.Sprintf(":path: %s", path),
-		fmt.Sprintf(":authority: %s", host),
-		"user-agent: golang-http2-client",
+	headers := []struct {
+		Name  string
+		Value string
+	}{
+		{":method", "GET"},
+		{":scheme", parsedURL.Scheme},
+		{":path", path},
+		{":authority", host},
+		{"user-agent", "netool-fetch"},
 	}
 
-	// Encode headers as a simple format (not full HPACK encoding)
-	var headersBuffer strings.Builder
+	var headersBuffer bytes.Buffer
 	for _, header := range headers {
-		headersBuffer.WriteString(header)
-		headersBuffer.WriteString("\r\n")
+		// Write each header field as: length of name, name, length of value, value
+		headersBuffer.WriteByte(byte(len(header.Name)))
+		headersBuffer.WriteString(header.Name)
+		headersBuffer.WriteByte(byte(len(header.Value)))
+		headersBuffer.WriteString(header.Value)
 	}
-	headersBuffer.WriteString("\r\n")
 
-	// Send headers
-	if _, err := conn.Write([]byte(headersBuffer.String())); err != nil {
+	headersPayload := headersBuffer.Bytes()
+	length := len(headersPayload)
+	frameHeader := make([]byte, 9)
+	binary.BigEndian.PutUint32(frameHeader[:4], uint32(length))
+	frameHeader[0] = byte((length >> 16) & 0xFF) // Length (3 bytes)
+	frameHeader[1] = byte((length >> 8) & 0xFF)
+	frameHeader[2] = byte(length & 0xFF)
+	frameHeader[3] = 0x1                             // Type: HEADERS (0x1)
+	frameHeader[4] = 0x4                             // Flags: END_HEADERS (0x4)
+	binary.BigEndian.PutUint32(frameHeader[5:], 0x1) // Stream ID: 1
+
+	// Send the HEADERS frame
+	_, err := conn.Write(frameHeader)
+	if err != nil {
+		log.Printf("Send the HEADERS frame failure: %v\n", err)
 		return err
 	}
-	fmt.Println("Sent HTTP/2 request headers")
+	_, err = conn.Write(headersPayload)
+	if err != nil {
+		log.Printf("Send the HEADERS payload failure: %v\n", err)
+		return err
+	}
+
+	log.Println("Sent HTTP/2 request headers")
 	return nil
 }
 
