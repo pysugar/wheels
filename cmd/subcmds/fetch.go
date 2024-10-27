@@ -133,7 +133,7 @@ func sendRequest(conn *tls.Conn, parsedURL *url.URL) error {
 		return err
 	}
 
-	log.Println("Sent HTTP/2 request headers")
+	log.Println("Sent HTTP/2 request headers successful")
 	return nil
 }
 
