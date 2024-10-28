@@ -6,7 +6,6 @@ import (
 	"encoding/base64"
 	"encoding/binary"
 	"fmt"
-	"google.golang.org/protobuf/proto"
 	"io"
 	"log"
 	"net"
@@ -185,31 +184,34 @@ func (f *fetcher) callHTTP2(parsedURL *url.URL) error {
 	if err != nil {
 		return err
 	}
-	// defer conn.Close()
+	defer conn.Close()
 
 	clientPreface := []byte("PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n")
+	log.Printf("< Send HTTP/2 Client Preface: %s\n", clientPreface)
 	n, err := conn.Write(clientPreface)
 	if err != nil {
 		log.Printf("Failed to send HTTP/2 Client Preface, err = %v, n = %d\n", err, n)
 		return err
 	}
 
-	doneCh := make(chan struct{})
-	go func() {
-		defer close(doneCh)
-		f.readLoop(conn)
-	}()
-
 	// SETTINGS payload:
-	settings := []byte{
-		0x00, 0x03, 0x00, 0x00, 0x00, 0x64, // SETTINGS_MAX_CONCURRENT_STREAMS = 100
-		0x00, 0x04, 0x00, 0x00, 0x40, 0x00, // SETTINGS_INITIAL_WINDOW_SIZE = 16384
-	}
+	//settings := []byte{
+	//	0x00, 0x03, 0x00, 0x00, 0x00, 0x64, // SETTINGS_MAX_CONCURRENT_STREAMS = 100
+	//	0x00, 0x04, 0x00, 0x00, 0x40, 0x00, // SETTINGS_INITIAL_WINDOW_SIZE = 16384
+	//}
+	settings := []byte{}
 	err = http2.WriteSettingsFrame(conn, 0, settings)
 	if err != nil {
 		log.Println("Failed to send HTTP/2 settings:", err)
 		return err
 	}
+	log.Printf("Send HTTP/2 Client Preface and Settings Done >\n")
+
+	doneCh := make(chan struct{})
+	go func() {
+		defer close(doneCh)
+		f.readLoop(conn)
+	}()
 
 	localStreamID := atomic.AddUint32(&streamID, 2) - 2
 	err = f.sendRequestHeadersHTTP2(conn, localStreamID, parsedURL)
@@ -219,7 +221,11 @@ func (f *fetcher) callHTTP2(parsedURL *url.URL) error {
 	}
 
 	requestData := &pb.HealthCheckRequest{}
-	requestBody, _ := proto.Marshal(requestData)
+	requestBody, err := http2.BuildGrpcFrame(requestData)
+	if err != nil {
+		log.Println("Failed to BuildGrpcFrame:", err)
+		return err
+	}
 	err = f.sendRequestBodyHTTP2(conn, localStreamID, requestBody)
 	if err != nil {
 		log.Println("Failed to send HTTP/2 request body:", err)
@@ -232,7 +238,7 @@ func (f *fetcher) callHTTP2(parsedURL *url.URL) error {
 }
 
 func (f *fetcher) readLoop(conn net.Conn) {
-	if err := conn.SetReadDeadline(time.Now().Add(30 * time.Second)); err != nil {
+	if err := conn.SetReadDeadline(time.Now().Add(10 * time.Second)); err != nil {
 		log.Printf("SetReadDeadline err: %v\n", err)
 	}
 	if err := http2.ReadFrames(conn); err != nil {

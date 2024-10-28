@@ -41,10 +41,12 @@ func WriteDataFrame(w io.Writer, streamID uint32, body []byte) error {
 	} else {
 		log.Printf("Write data header success, length = %d\n", n)
 	}
-	if n, err := w.Write(body); err != nil {
-		return err
-	} else {
-		log.Printf("Write data payload success, length = %d\n", n)
+	if length > 0 {
+		if n, err := w.Write(body); err != nil {
+			return err
+		} else {
+			log.Printf("Write data payload success, length = %d\n", n)
+		}
 	}
 	return nil
 }

@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"log"
 	"net"
 	"net/http"
 	"os"
@@ -22,7 +23,31 @@ const (
 	port = ":50051"
 )
 
+func loggingInterceptor(
+	ctx context.Context,
+	req interface{},
+	info *grpc.UnaryServerInfo,
+	handler grpc.UnaryHandler,
+) (interface{}, error) {
+	log.Printf("gRPC method: %s, request: %v", info.FullMethod, req)
+
+	resp, err := handler(ctx, req)
+
+	if err != nil {
+		log.Printf("Error: %v", err)
+	} else {
+		log.Printf("Response: %v", resp)
+	}
+
+	return resp, err
+}
+
 func main() {
+	os.Setenv("GRPC_GO_LOG_SEVERITY_LEVEL", "DEBUG")
+	os.Setenv("GRPC_GO_LOG_VERBOSITY_LEVEL", "DEBUG")
+	os.Setenv("GRPC_TRACE", "all")
+	os.Setenv("GRPC_VERBOSITY", "DEBUG")
+
 	logger := grpclog.NewLoggerV2(os.Stdout, os.Stdout, os.Stderr)
 	grpclog.SetLoggerV2(logger)
 
@@ -42,7 +67,7 @@ func main() {
 	s := grpc.NewServer(
 		grpc.KeepaliveParams(kaParams),
 		grpc.StreamInterceptor(grpcprometheus.StreamServerInterceptor),
-		grpc.UnaryInterceptor(grpcprometheus.UnaryServerInterceptor),
+		grpc.ChainUnaryInterceptor(loggingInterceptor, grpcprometheus.UnaryServerInterceptor),
 	)
 
 	healthServer := health.NewServer()
