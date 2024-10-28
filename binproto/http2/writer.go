@@ -33,7 +33,7 @@ func WriteDataFrame(w io.Writer, streamID uint32, body []byte) error {
 	buf[1] = byte((length >> 8) & 0xFF)
 	buf[2] = byte(length & 0xFF)
 	buf[3] = 0x0                                  // Type: DATA (0x0)
-	buf[4] = 0x1                                  // Flags: END_STREAM (0x1)
+	buf[4] = 0x0                                  // Flags
 	binary.BigEndian.PutUint32(buf[5:], streamID) // Stream ID: 1
 
 	if n, err := w.Write(buf[:]); err != nil {

@@ -221,7 +221,7 @@ func (f *fetcher) callHTTP2(parsedURL *url.URL) error {
 	}
 
 	requestData := &pb.HealthCheckRequest{}
-	requestBody, err := http2.BuildGrpcFrame(requestData)
+	requestBody, err := http2.EncodeGrpcFrame(requestData)
 	if err != nil {
 		log.Println("Failed to BuildGrpcFrame:", err)
 		return err
@@ -241,7 +241,9 @@ func (f *fetcher) readLoop(conn net.Conn) {
 	if err := conn.SetReadDeadline(time.Now().Add(10 * time.Second)); err != nil {
 		log.Printf("SetReadDeadline err: %v\n", err)
 	}
-	if err := http2.ReadFrames(conn); err != nil {
+
+	response := &pb.HealthCheckResponse{}
+	if err := http2.ReadFrames(conn, response); err != nil {
 		log.Printf("read conn err: %v\n", err)
 	}
 	log.Printf("Receive HTTP/2 response done >\n")
@@ -356,7 +358,9 @@ func readLoop(conn net.Conn) {
 	if err := conn.SetReadDeadline(time.Now().Add(30 * time.Second)); err != nil {
 		log.Printf("SetReadDeadline err: %v\n", err)
 	}
-	if err := http2.ReadFrames(conn); err != nil {
+
+	response := &pb.HealthCheckResponse{}
+	if err := http2.ReadFrames(conn, response); err != nil {
 		log.Printf("read conn err: %v\n", err)
 	}
 }

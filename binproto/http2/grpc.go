@@ -3,11 +3,12 @@ package http2
 import (
 	"bytes"
 	"encoding/binary"
+	"fmt"
 	"google.golang.org/protobuf/proto"
 	"log"
 )
 
-func BuildGrpcFrame(message proto.Message) ([]byte, error) {
+func EncodeGrpcFrame(message proto.Message) ([]byte, error) {
 	protoData, err := proto.Marshal(message)
 	if err != nil {
 		log.Fatalf("Failed to serialize request: %v", err)
@@ -23,4 +24,25 @@ func BuildGrpcFrame(message proto.Message) ([]byte, error) {
 	}
 	buf.Write(protoData) // 写入实际的 Protobuf 消息
 	return buf.Bytes(), nil
+}
+
+func DecodeGrpcFrame(data []byte, message proto.Message) error {
+	if len(data) < 5 {
+		return fmt.Errorf("invalid grpc frame data")
+	}
+	compressedFlag := data[0]
+	messageLength := binary.BigEndian.Uint32(data[1:5])
+
+	if compressedFlag != 0 {
+		return fmt.Errorf("compressed responses are not supported in this client example")
+	}
+
+	messageData := data[5 : 5+messageLength]
+
+	err := proto.Unmarshal(messageData, message)
+	if err != nil {
+		log.Printf("Failed to unmarshal response: %v", err)
+		return err
+	}
+	return nil
 }

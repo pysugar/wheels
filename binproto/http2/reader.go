@@ -4,9 +4,11 @@ import (
 	"bytes"
 	"encoding/binary"
 	"errors"
-	"golang.org/x/net/http2/hpack"
 	"io"
 	"log"
+
+	"golang.org/x/net/http2/hpack"
+	"google.golang.org/protobuf/proto"
 )
 
 const (
@@ -47,7 +49,7 @@ var (
 	}
 )
 
-func ReadFrames(rw io.ReadWriter) error {
+func ReadFrames(rw io.ReadWriter, response proto.Message) error {
 	pingCount := 0
 	for {
 		frameHeader, err := readFrameHeader(rw)
@@ -57,6 +59,10 @@ func ReadFrames(rw io.ReadWriter) error {
 
 		log.Printf("Received frame: Length=%d, Type=%s(%d), Flags=%d, StreamID=%d\n", frameHeader.Length,
 			frameTypes[frameHeader.Type], frameHeader.Type, frameHeader.Flags, frameHeader.StreamID)
+
+		if frameHeader.Type == 3 { // RST_STREAM
+			return nil
+		}
 
 		payload, err := readFramePayload(rw, frameHeader.Length)
 		if err != nil {
@@ -94,6 +100,10 @@ func ReadFrames(rw io.ReadWriter) error {
 				//if er := WriteSettingsFrame(rw, flags, payload); er != nil {
 				//	return er
 				//}
+			}
+		} else if frameHeader.Type == 0 {
+			if er := DecodeGrpcFrame(payload, response); er == nil {
+				log.Printf("receive data response: %v\n", response)
 			}
 		}
 	}
