@@ -195,11 +195,10 @@ func (f *fetcher) callHTTP2(parsedURL *url.URL) error {
 	}
 
 	// SETTINGS payload:
-	//settings := []byte{
-	//	0x00, 0x03, 0x00, 0x00, 0x00, 0x64, // SETTINGS_MAX_CONCURRENT_STREAMS = 100
-	//	0x00, 0x04, 0x00, 0x00, 0x40, 0x00, // SETTINGS_INITIAL_WINDOW_SIZE = 16384
-	//}
-	settings := []byte{}
+	settings := []byte{
+		0x00, 0x03, 0x00, 0x00, 0x00, 0x64, // SETTINGS_MAX_CONCURRENT_STREAMS = 100
+		0x00, 0x04, 0x00, 0x00, 0x40, 0x00, // SETTINGS_INITIAL_WINDOW_SIZE = 16384
+	}
 	err = http2.WriteSettingsFrame(conn, 0, settings)
 	if err != nil {
 		log.Println("Failed to send HTTP/2 settings:", err)
