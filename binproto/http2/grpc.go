@@ -4,8 +4,9 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
-	"google.golang.org/protobuf/proto"
 	"log"
+
+	"google.golang.org/protobuf/proto"
 )
 
 func EncodeGrpcFrame(message proto.Message) ([]byte, error) {

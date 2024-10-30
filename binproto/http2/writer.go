@@ -4,10 +4,11 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
-	"golang.org/x/net/http2/hpack"
 	"io"
 	"log"
 	"net"
+
+	"golang.org/x/net/http2/hpack"
 )
 
 var (
