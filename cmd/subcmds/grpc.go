@@ -4,8 +4,6 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
-	"google.golang.org/grpc/credentials"
-	"google.golang.org/grpc/credentials/insecure"
 	"log"
 	"strings"
 	"time"
@@ -13,6 +11,8 @@ import (
 	"github.com/pysugar/wheels/cmd/base"
 	"github.com/spf13/cobra"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials"
+	"google.golang.org/grpc/credentials/insecure"
 	reflectionpb "google.golang.org/grpc/reflection/grpc_reflection_v1"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
@@ -104,14 +104,18 @@ List all methods in a particular service: netool grpc grpc.server.com:443 list m
 			if !plaintextMode && insecureMode {
 				cred = credentials.NewTLS(&tls.Config{InsecureSkipVerify: true})
 			}
+
 			target := args[0]
 			op := args[1]
-			if op == "list" {
-				ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-				defer cancel()
-
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			if strings.EqualFold(op, "list") {
 				if err := listServices(ctx, target, grpc.WithTransportCredentials(cred)); err != nil {
 					log.Printf("List services error: %v\n", err)
+				}
+			} else if strings.EqualFold(op, "desc") {
+				if err := listDescriptors(ctx, target, "grpc.health.v1.Health", grpc.WithTransportCredentials(cred)); err != nil {
+					log.Printf("List descriptors error: %v\n", err)
 				}
 			}
 		},
@@ -119,9 +123,85 @@ List all methods in a particular service: netool grpc grpc.server.com:443 list m
 )
 
 func init() {
-	grpcCmd.Flags().BoolP("plaintext", "p", true, "Use plain-text HTTP/2 when connecting to server (no TLS)")
+	grpcCmd.Flags().BoolP("plaintext", "p", false, "Use plain-text HTTP/2 when connecting to server (no TLS)")
 	grpcCmd.Flags().BoolP("insecure", "i", false, "Skip server certificate and domain verification (skip TLS)")
 	base.AddSubCommands(grpcCmd)
+}
+
+func listDescriptors(ctx context.Context, target, serviceName string, opts ...grpc.DialOption) error {
+	conn, err := grpc.NewClient(target, opts...)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+
+	reflectionClient := reflectionpb.NewServerReflectionClient(conn)
+	clientStream, err := reflectionClient.ServerReflectionInfo(ctx)
+	if err != nil {
+		return err
+	}
+
+	doneCh := make(chan struct{})
+	go func() {
+		defer close(doneCh)
+		for {
+			resp, er := clientStream.Recv()
+			if er != nil {
+				log.Printf("Failed to receive service reflection response: %v", er)
+				return
+			}
+
+			if errResp := resp.GetErrorResponse(); errResp != nil {
+				log.Printf("Failed to receive service reflection response: %v", errResp)
+				continue
+			}
+
+			fileDescriptorResp := resp.GetFileDescriptorResponse()
+			if fileDescriptorResp == nil {
+				continue
+			}
+
+			for i, fdBytes := range fileDescriptorResp.FileDescriptorProto {
+				fdProto := &descriptorpb.FileDescriptorProto{}
+				if e := proto.Unmarshal(fdBytes, fdProto); e != nil {
+					log.Printf("[%d] failed to unmarshal FileDescriptorProto: %v\n", i, e)
+					continue
+				}
+
+				fileDesc, e := protodesc.NewFile(fdProto, protoregistry.GlobalFiles)
+				if e != nil {
+					log.Printf("[%d] failed to create FileDescriptor: %v\n", i, err)
+					continue
+				}
+
+				for j := 0; j < fileDesc.Services().Len(); j++ {
+					srv := fileDesc.Services().Get(j)
+					log.Printf("[%d] %s\n", i, srv.FullName())
+					for k := 0; k < srv.Methods().Len(); k++ {
+						mth := srv.Methods().Get(k)
+						log.Printf("[%d]\t %s\n", i, mth.FullName())
+						log.Printf("[%d]\t\t %v\n", i, mth.Input().FullName())
+						log.Printf("[%d]\t\t %v\n", i, mth.Output().FullName())
+						log.Printf("[%d]\t\t stream client: %v\n", i, mth.IsStreamingClient())
+						log.Printf("[%d]\t\t stream server: %v\n", i, mth.IsStreamingServer())
+
+					}
+				}
+			}
+			return
+		}
+	}()
+
+	if er := clientStream.Send(&reflectionpb.ServerReflectionRequest{
+		MessageRequest: &reflectionpb.ServerReflectionRequest_FileContainingSymbol{
+			FileContainingSymbol: serviceName,
+		},
+	}); er != nil {
+		return fmt.Errorf("failed to send reflection request for service: %v", er)
+	}
+
+	<-doneCh
+	return nil
 }
 
 func listServices(ctx context.Context, target string, opts ...grpc.DialOption) error {
