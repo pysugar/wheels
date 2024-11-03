@@ -21,6 +21,11 @@ import (
 	"google.golang.org/protobuf/reflect/protoregistry"
 	"google.golang.org/protobuf/types/descriptorpb"
 	"google.golang.org/protobuf/types/dynamicpb"
+
+	_ "google.golang.org/protobuf/types/known/anypb"
+	_ "google.golang.org/protobuf/types/known/durationpb"
+	_ "google.golang.org/protobuf/types/known/timestamppb"
+	_ "google.golang.org/protobuf/types/known/wrapperspb"
 )
 
 type grpcReflectClient struct {
@@ -110,12 +115,15 @@ List all methods in a particular service: netool grpc grpc.server.com:443 list m
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer cancel()
 			if strings.EqualFold(op, "list") {
-				if err := listServices(ctx, target, grpc.WithTransportCredentials(cred)); err != nil {
-					log.Printf("List services error: %v\n", err)
-				}
-			} else if strings.EqualFold(op, "desc") {
-				if err := listDescriptors(ctx, target, "grpc.health.v1.Health", grpc.WithTransportCredentials(cred)); err != nil {
-					log.Printf("List descriptors error: %v\n", err)
+				if len(args) > 2 {
+					serviceName := args[2]
+					if err := listDescriptors(ctx, target, serviceName, grpc.WithTransportCredentials(cred)); err != nil {
+						log.Printf("List descriptors error: %v\n", err)
+					}
+				} else {
+					if err := listServices(ctx, target, grpc.WithTransportCredentials(cred)); err != nil {
+						log.Printf("List services error: %v\n", err)
+					}
 				}
 			}
 		},
@@ -168,10 +176,19 @@ func listDescriptors(ctx context.Context, target, serviceName string, opts ...gr
 					continue
 				}
 
+				//protoregistry.GlobalTypes.RangeMessages(func(mt protoreflect.MessageType) bool {
+				//	log.Printf("GlobalType: %v\n", mt.Descriptor().FullName())
+				//	return true
+				//})
+
+				for _, dep := range fdProto.GetDependency() {
+					log.Printf("Dependency: %s\n", dep)
+				}
+
 				fileDesc, e := protodesc.NewFile(fdProto, protoregistry.GlobalFiles)
 				if e != nil {
-					log.Printf("[%d] failed to create FileDescriptor: %v\n", i, err)
-					continue
+					log.Printf("[%d] failed to create FileDescriptor from %v: %v\n", i, fdProto, e)
+					return
 				}
 
 				for j := 0; j < fileDesc.Services().Len(); j++ {
@@ -184,7 +201,6 @@ func listDescriptors(ctx context.Context, target, serviceName string, opts ...gr
 						log.Printf("[%d]\t\t %v\n", i, mth.Output().FullName())
 						log.Printf("[%d]\t\t stream client: %v\n", i, mth.IsStreamingClient())
 						log.Printf("[%d]\t\t stream server: %v\n", i, mth.IsStreamingServer())
-
 					}
 				}
 			}
