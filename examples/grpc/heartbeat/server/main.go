@@ -74,7 +74,7 @@ func main() {
 	healthServer.SetServingStatus("my_service", grpc_health_v1.HealthCheckResponse_SERVING)
 
 	grpc_health_v1.RegisterHealthServer(s, healthServer)
-	reflection.Register(s)
+	reflection.RegisterV1(s)
 	service.RegisterChannelzServiceToServer(s)
 	grpcprometheus.Register(s)
 
