@@ -28,62 +28,6 @@ import (
 	_ "google.golang.org/protobuf/types/known/wrapperspb"
 )
 
-type grpcReflectClient struct {
-	reflectionClient reflectionpb.ServerReflectionClient
-}
-
-func (c *grpcReflectClient) findMethodDesc(serviceName, methodName string) (protoreflect.MethodDescriptor, error) {
-	ctx := context.Background()
-	stream, err := c.reflectionClient.ServerReflectionInfo(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create reflection stream: %v", err)
-	}
-
-	if er := stream.Send(&reflectionpb.ServerReflectionRequest{
-		MessageRequest: &reflectionpb.ServerReflectionRequest_FileContainingSymbol{
-			FileContainingSymbol: serviceName,
-		},
-	}); er != nil {
-		return nil, fmt.Errorf("failed to send reflection request for service: %v", err)
-	}
-
-	resp, err := stream.Recv()
-	if err != nil {
-		return nil, fmt.Errorf("failed to receive service reflection response: %v", err)
-	}
-
-	fileDescriptorResponse, ok := resp.MessageResponse.(*reflectionpb.ServerReflectionResponse_FileDescriptorResponse)
-	if !ok {
-		return nil, fmt.Errorf("unexpected response type for file descriptor")
-	}
-
-	for _, fdBytes := range fileDescriptorResponse.FileDescriptorResponse.FileDescriptorProto {
-		fdProto := &descriptorpb.FileDescriptorProto{}
-		if er := proto.Unmarshal(fdBytes, fdProto); er != nil {
-			return nil, fmt.Errorf("failed to unmarshal FileDescriptorProto: %v", er)
-		}
-
-		fileDesc, err := protodesc.NewFile(fdProto, protoregistry.GlobalFiles)
-		if err != nil {
-			return nil, fmt.Errorf("failed to create FileDescriptor: %v", err)
-		}
-
-		serviceDesc := fileDesc.Services().ByName(protoreflect.Name(serviceName))
-		if serviceDesc == nil {
-			continue
-		}
-
-		methodDesc := serviceDesc.Methods().ByName(protoreflect.Name(methodName))
-		if methodDesc == nil {
-			return nil, fmt.Errorf("method %s not found in service %s", methodName, serviceName)
-		}
-
-		return methodDesc, nil
-	}
-
-	return nil, fmt.Errorf("service %s not found", serviceName)
-}
-
 var (
 	grpcCmd = &cobra.Command{
 		Use:   `grpc -d '{}' 127.0.0.1:50051 grpc.health.v1.Health/Check`,
@@ -125,6 +69,10 @@ List all methods in a particular service: netool grpc grpc.server.com:443 list m
 						log.Printf("List services error: %v\n", err)
 					}
 				}
+			} else {
+				if err := makeGenericGrpcCall(ctx, target, op, "{}", grpc.WithTransportCredentials(cred)); err != nil {
+					log.Printf("make generic grpc call error: %v\n", err)
+				}
 			}
 		},
 	}
@@ -137,7 +85,13 @@ func init() {
 }
 
 func listDescriptors(ctx context.Context, target, serviceName string, opts ...grpc.DialOption) error {
-	clientStream, err := newReflectionClient(ctx, target, opts...)
+	conn, err := grpc.NewClient(target, opts...)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+
+	clientStream, err := newReflectionClient(ctx, conn, opts...)
 	if err != nil {
 		return err
 	}
@@ -169,10 +123,10 @@ func listDescriptors(ctx context.Context, target, serviceName string, opts ...gr
 					continue
 				}
 
-				//protoregistry.GlobalTypes.RangeMessages(func(mt protoreflect.MessageType) bool {
-				//	log.Printf("GlobalType: %v\n", mt.Descriptor().FullName())
-				//	return true
-				//})
+				protoregistry.GlobalTypes.RangeMessages(func(mt protoreflect.MessageType) bool {
+					log.Printf("GlobalType: %v\n", mt.Descriptor().FullName())
+					return true
+				})
 
 				for _, dep := range fdProto.GetDependency() {
 					log.Printf("Dependency: %s\n", dep)
@@ -214,7 +168,13 @@ func listDescriptors(ctx context.Context, target, serviceName string, opts ...gr
 }
 
 func listServices(ctx context.Context, target string, opts ...grpc.DialOption) error {
-	clientStream, err := newReflectionClient(ctx, target, opts...)
+	conn, err := grpc.NewClient(target, opts...)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+
+	clientStream, err := newReflectionClient(ctx, conn, opts...)
 	if err != nil {
 		return err
 	}
@@ -258,35 +218,94 @@ func listServices(ctx context.Context, target string, opts ...grpc.DialOption) e
 	return nil
 }
 
-func findMethodDescriptor(ctx context.Context, target, method string, opts ...grpc.DialOption) (protoreflect.MethodDescriptor, error) {
-	clientStream, err := newReflectionClient(ctx, target, opts...)
+func findMethodDescriptor(ctx context.Context, conn *grpc.ClientConn, serviceName, methodName string) (protoreflect.MethodDescriptor, error) {
+	reflectionClient := reflectionpb.NewServerReflectionClient(conn)
+	clientStream, err := reflectionClient.ServerReflectionInfo(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	doneCh := make(chan struct{})
-	<-doneCh
-	return nil, nil
+	doneCh := make(chan any)
+	go func() {
+		defer close(doneCh)
+		for {
+			resp, er := clientStream.Recv()
+			if er != nil {
+				log.Printf("Failed to receive service reflection response: %v", er)
+				doneCh <- er
+				return
+			}
+
+			if errResp := resp.GetErrorResponse(); errResp != nil {
+				log.Printf("Failed to receive service reflection response: %v", errResp)
+				doneCh <- fmt.Errorf("code: %d, message: %s", errResp.ErrorCode, errResp.ErrorMessage)
+				return
+			}
+
+			descResp := resp.GetFileDescriptorResponse()
+			descResp.GetFileDescriptorProto()
+
+			for _, fdBytes := range descResp.FileDescriptorProto {
+				fdProto := &descriptorpb.FileDescriptorProto{}
+				if e := proto.Unmarshal(fdBytes, fdProto); e != nil {
+					log.Printf("failed to unmarshal FileDescriptorProto: %v", er)
+					continue
+				}
+
+				fileDesc, e := protodesc.NewFile(fdProto, protoregistry.GlobalFiles)
+				if e != nil {
+					log.Printf("failed to create FileDescriptor: %v", e)
+					return
+				}
+
+				for j := 0; j < fileDesc.Services().Len(); j++ {
+					srv := fileDesc.Services().Get(j)
+					if strings.EqualFold(string(srv.FullName()), serviceName) {
+						for k := 0; k < srv.Methods().Len(); k++ {
+							mth := srv.Methods().Get(k)
+							if strings.EqualFold(string(mth.Name()), methodName) {
+								doneCh <- mth
+							}
+						}
+						doneCh <- fmt.Errorf("method %s not found in service %s", methodName, serviceName)
+					}
+				}
+			}
+		}
+	}()
+
+	if er := clientStream.Send(&reflectionpb.ServerReflectionRequest{
+		MessageRequest: &reflectionpb.ServerReflectionRequest_FileContainingSymbol{
+			FileContainingSymbol: serviceName,
+		},
+	}); er != nil {
+		return nil, fmt.Errorf("failed to send reflection request for service: %v", er)
+	}
+
+	if v, ok := <-doneCh; ok {
+		if er, has := v.(error); has {
+			return nil, er
+		} else if md, suc := v.(protoreflect.MethodDescriptor); suc {
+			return md, nil
+		}
+		return nil, fmt.Errorf("unexpected error: %v", v)
+	}
+	return nil, fmt.Errorf("unexpected error")
 }
 
-func makeGenericGrpcCall(target, method, jsonData string) error {
-	conn, err := grpc.Dial(target, grpc.WithInsecure())
+func makeGenericGrpcCall(ctx context.Context, target, fullMethod, jsonData string, opts ...grpc.DialOption) error {
+	conn, err := grpc.NewClient(target, opts...)
 	if err != nil {
 		return err
 	}
 	defer conn.Close()
 
-	reflectionClient := reflectionpb.NewServerReflectionClient(conn)
-	client := &grpcReflectClient{
-		reflectionClient: reflectionClient,
-	}
-
-	serviceName, methodName, err := parseMethod(method)
+	serviceName, methodName, err := parseMethod(fullMethod)
 	if err != nil {
 		return err
 	}
 
-	methodDesc, err := client.findMethodDesc(serviceName, methodName)
+	methodDesc, err := findMethodDescriptor(ctx, conn, serviceName, methodName)
 	if err != nil {
 		return err
 	}
@@ -301,7 +320,6 @@ func makeGenericGrpcCall(target, method, jsonData string) error {
 	outputDesc := methodDesc.Output()
 	resMessage := dynamicpb.NewMessage(outputDesc)
 
-	ctx := context.Background()
 	rpcMethod := fmt.Sprintf("/%s/%s", serviceName, methodName)
 	err = conn.Invoke(ctx, rpcMethod, reqMessage, resMessage)
 	if err != nil {
@@ -327,13 +345,7 @@ func parseMethod(fullMethodName string) (string, string, error) {
 	return serviceName, methodName, nil
 }
 
-func newReflectionClient(ctx context.Context, target string, opts ...grpc.DialOption) (grpc.BidiStreamingClient[reflectionpb.ServerReflectionRequest, reflectionpb.ServerReflectionResponse], error) {
-	conn, err := grpc.NewClient(target, opts...)
-	if err != nil {
-		return nil, err
-	}
-	defer conn.Close()
-
+func newReflectionClient(ctx context.Context, conn *grpc.ClientConn, opts ...grpc.DialOption) (grpc.BidiStreamingClient[reflectionpb.ServerReflectionRequest, reflectionpb.ServerReflectionResponse], error) {
 	reflectionClient := reflectionpb.NewServerReflectionClient(conn)
 	clientStream, err := reflectionClient.ServerReflectionInfo(ctx)
 	if err != nil {
