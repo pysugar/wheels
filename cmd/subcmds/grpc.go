@@ -137,14 +137,7 @@ func init() {
 }
 
 func listDescriptors(ctx context.Context, target, serviceName string, opts ...grpc.DialOption) error {
-	conn, err := grpc.NewClient(target, opts...)
-	if err != nil {
-		return err
-	}
-	defer conn.Close()
-
-	reflectionClient := reflectionpb.NewServerReflectionClient(conn)
-	clientStream, err := reflectionClient.ServerReflectionInfo(ctx)
+	clientStream, err := newReflectionClient(ctx, target, opts...)
 	if err != nil {
 		return err
 	}
@@ -221,14 +214,7 @@ func listDescriptors(ctx context.Context, target, serviceName string, opts ...gr
 }
 
 func listServices(ctx context.Context, target string, opts ...grpc.DialOption) error {
-	conn, err := grpc.NewClient(target, opts...)
-	if err != nil {
-		return err
-	}
-	defer conn.Close()
-
-	reflectionClient := reflectionpb.NewServerReflectionClient(conn)
-	clientStream, err := reflectionClient.ServerReflectionInfo(ctx)
+	clientStream, err := newReflectionClient(ctx, target, opts...)
 	if err != nil {
 		return err
 	}
@@ -270,6 +256,17 @@ func listServices(ctx context.Context, target string, opts ...grpc.DialOption) e
 
 	<-doneCh
 	return nil
+}
+
+func findMethodDescriptor(ctx context.Context, target, method string, opts ...grpc.DialOption) (protoreflect.MethodDescriptor, error) {
+	clientStream, err := newReflectionClient(ctx, target, opts...)
+	if err != nil {
+		return nil, err
+	}
+
+	doneCh := make(chan struct{})
+	<-doneCh
+	return nil, nil
 }
 
 func makeGenericGrpcCall(target, method, jsonData string) error {
@@ -328,4 +325,19 @@ func parseMethod(fullMethodName string) (string, string, error) {
 	serviceName := parts[0]
 	methodName := parts[1]
 	return serviceName, methodName, nil
+}
+
+func newReflectionClient(ctx context.Context, target string, opts ...grpc.DialOption) (grpc.BidiStreamingClient[reflectionpb.ServerReflectionRequest, reflectionpb.ServerReflectionResponse], error) {
+	conn, err := grpc.NewClient(target, opts...)
+	if err != nil {
+		return nil, err
+	}
+	defer conn.Close()
+
+	reflectionClient := reflectionpb.NewServerReflectionClient(conn)
+	clientStream, err := reflectionClient.ServerReflectionInfo(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return clientStream, nil
 }
