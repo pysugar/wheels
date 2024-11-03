@@ -2,7 +2,10 @@ package subcmds
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
+	"google.golang.org/grpc/credentials"
+	"google.golang.org/grpc/credentials/insecure"
 	"log"
 	"strings"
 	"time"
@@ -94,13 +97,20 @@ List all methods in a particular service: netool grpc grpc.server.com:443 list m
 				return
 			}
 
+			plaintextMode, _ := cmd.Flags().GetBool("plaintext")
+			insecureMode, _ := cmd.Flags().GetBool("insecure")
+
+			cred := insecure.NewCredentials()
+			if !plaintextMode && insecureMode {
+				cred = credentials.NewTLS(&tls.Config{InsecureSkipVerify: true})
+			}
 			target := args[0]
 			op := args[1]
 			if op == "list" {
 				ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 				defer cancel()
 
-				if err := listServices(ctx, target, grpc.WithInsecure()); err != nil {
+				if err := listServices(ctx, target, grpc.WithTransportCredentials(cred)); err != nil {
 					log.Printf("List services error: %v\n", err)
 				}
 			}
@@ -109,6 +119,8 @@ List all methods in a particular service: netool grpc grpc.server.com:443 list m
 )
 
 func init() {
+	grpcCmd.Flags().BoolP("plaintext", "p", true, "Use plain-text HTTP/2 when connecting to server (no TLS)")
+	grpcCmd.Flags().BoolP("insecure", "i", false, "Skip server certificate and domain verification (skip TLS)")
 	base.AddSubCommands(grpcCmd)
 }
 
@@ -128,18 +140,33 @@ func listServices(ctx context.Context, target string, opts ...grpc.DialOption) e
 	doneCh := make(chan struct{})
 	go func() {
 		defer close(doneCh)
-		if resp, er := clientStream.Recv(); er != nil {
-			log.Printf("failed to receive service reflection response: %v", err)
-		} else {
-			for _, srv := range resp.GetListServicesResponse().GetService() {
-				log.Printf("%v\n", srv.GetName())
+		for {
+			resp, er := clientStream.Recv()
+			if er != nil {
+				log.Printf("Failed to receive service reflection response: %v", er)
+				return
 			}
+
+			if errResp := resp.GetErrorResponse(); errResp != nil {
+				log.Printf("Failed to receive service reflection response: %v", errResp)
+				continue
+			}
+
+			listServicesResp := resp.GetListServicesResponse()
+			if listServicesResp == nil {
+				continue
+			}
+
+			for _, srv := range listServicesResp.GetService() {
+				log.Printf("Discovered service: %v\n", srv.GetName())
+			}
+			return
 		}
 	}()
 
 	if er := clientStream.Send(&reflectionpb.ServerReflectionRequest{
 		MessageRequest: &reflectionpb.ServerReflectionRequest_ListServices{
-			ListServices: "all",
+			ListServices: "*",
 		},
 	}); er != nil {
 		return fmt.Errorf("failed to send reflection request for service: %v", err)
