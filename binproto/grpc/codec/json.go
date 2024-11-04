@@ -2,45 +2,36 @@ package codec
 
 import (
 	"encoding/json"
+	"log"
 )
 
-func init() {
-	// encoding.RegisterCodec(jsonCodec{})
-}
+//func init() {
+//	encoding.RegisterCodec(&JsonFrame{})
+//}
 
 type JsonFrame struct {
-	RawData []byte
+	RawData json.RawMessage
 }
 
 func (f *JsonFrame) Name() string {
 	return "json"
 }
 
-func (f *JsonFrame) Marshal(v interface{}) ([]byte, error) {
-	frame, _ := v.(*JsonFrame)
+func (j *JsonFrame) Marshal(v interface{}) ([]byte, error) {
+	frame, ok := v.(*JsonFrame)
+	if !ok {
+		log.Printf("unable to marshal type: %T", v)
+		return json.Marshal(v)
+	}
 	return frame.RawData, nil
 }
 
-func (f *JsonFrame) Unmarshal(data []byte, v interface{}) error {
-	frame, _ := v.(*JsonFrame)
+func (j *JsonFrame) Unmarshal(data []byte, v interface{}) error {
+	frame, ok := v.(*JsonFrame)
+	if !ok {
+		log.Printf("unable to unmarshal type: %T", v)
+		return json.Unmarshal(data, v)
+	}
 	frame.RawData = data
 	return nil
-}
-
-type jsonCodec struct{}
-
-func (jc jsonCodec) Name() string {
-	return "json"
-}
-
-func (jc jsonCodec) Marshal(v interface{}) ([]byte, error) {
-	return json.Marshal(v)
-}
-
-func (jc jsonCodec) Unmarshal(data []byte, v interface{}) error {
-	return json.Unmarshal(data, v)
-}
-
-func (jc jsonCodec) String() string {
-	return jc.Name()
 }

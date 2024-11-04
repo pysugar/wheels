@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"github.com/pysugar/wheels/binproto/grpc/codec"
+	"google.golang.org/grpc/encoding"
 	"log"
 	"net"
 	"net/http"
@@ -10,13 +12,13 @@ import (
 
 	grpcprometheus "github.com/grpc-ecosystem/go-grpc-prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	_ "github.com/pysugar/wheels/binproto/grpc/codec"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/channelz/service"
 	"google.golang.org/grpc/grpclog"
 	"google.golang.org/grpc/health"
 	"google.golang.org/grpc/health/grpc_health_v1"
 	"google.golang.org/grpc/keepalive"
-	"google.golang.org/grpc/reflection"
 )
 
 const (
@@ -43,6 +45,8 @@ func loggingInterceptor(
 }
 
 func main() {
+	encoding.RegisterCodec(&codec.JsonFrame{})
+
 	os.Setenv("GRPC_GO_LOG_SEVERITY_LEVEL", "DEBUG")
 	os.Setenv("GRPC_GO_LOG_VERBOSITY_LEVEL", "DEBUG")
 	os.Setenv("GRPC_TRACE", "all")
@@ -74,7 +78,7 @@ func main() {
 	healthServer.SetServingStatus("my_service", grpc_health_v1.HealthCheckResponse_SERVING)
 
 	grpc_health_v1.RegisterHealthServer(s, healthServer)
-	reflection.RegisterV1(s)
+	// reflection.RegisterV1(s)
 	service.RegisterChannelzServiceToServer(s)
 	grpcprometheus.Register(s)
 

@@ -4,6 +4,9 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
+	"github.com/pysugar/wheels/binproto/grpc/codec"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"log"
 	"strings"
 	"time"
@@ -70,7 +73,7 @@ List all methods in a particular service: netool grpc grpc.server.com:443 list m
 					}
 				}
 			} else {
-				if err := makeGenericGrpcCall(ctx, target, op, "{}", grpc.WithTransportCredentials(cred)); err != nil {
+				if err := makeGenericGrpcCall(ctx, target, op, []byte("{}"), grpc.WithTransportCredentials(cred)); err != nil {
 					log.Printf("make generic grpc call error: %v\n", err)
 				}
 			}
@@ -81,6 +84,8 @@ List all methods in a particular service: netool grpc grpc.server.com:443 list m
 func init() {
 	grpcCmd.Flags().BoolP("plaintext", "p", false, "Use plain-text HTTP/2 when connecting to server (no TLS)")
 	grpcCmd.Flags().BoolP("insecure", "i", false, "Skip server certificate and domain verification (skip TLS)")
+	grpcCmd.Flags().StringP("data", "d", "{}", "request data")
+	grpcCmd.Flags().StringP("context-pah", "c", "", "context path")
 	base.AddSubCommands(grpcCmd)
 }
 
@@ -293,7 +298,7 @@ func findMethodDescriptor(ctx context.Context, conn *grpc.ClientConn, serviceNam
 	return nil, fmt.Errorf("unexpected error")
 }
 
-func makeGenericGrpcCall(ctx context.Context, target, fullMethod, jsonData string, opts ...grpc.DialOption) error {
+func makeGenericGrpcCall(ctx context.Context, target, fullMethod string, jsonData []byte, opts ...grpc.DialOption) error {
 	conn, err := grpc.NewClient(target, opts...)
 	if err != nil {
 		return err
@@ -307,31 +312,56 @@ func makeGenericGrpcCall(ctx context.Context, target, fullMethod, jsonData strin
 
 	methodDesc, err := findMethodDescriptor(ctx, conn, serviceName, methodName)
 	if err != nil {
-		return err
+		st, ok := status.FromError(err)
+		if !ok {
+			return err
+		}
+
+		if st.Code() != codes.Unimplemented {
+			return err
+		}
 	}
 
-	inputDesc := methodDesc.Input()
-	reqMessage := dynamicpb.NewMessage(inputDesc)
-	err = protojson.Unmarshal([]byte(jsonData), reqMessage)
-	if err != nil {
-		return fmt.Errorf("failed to parse JSON to Protobuf: %v", err)
+	if len(jsonData) == 0 {
+		jsonData = []byte("{}")
 	}
 
-	outputDesc := methodDesc.Output()
-	resMessage := dynamicpb.NewMessage(outputDesc)
+	if methodDesc != nil {
+		inputDesc := methodDesc.Input()
+		reqMessage := dynamicpb.NewMessage(inputDesc)
+		err = protojson.Unmarshal(jsonData, reqMessage)
+		if err != nil {
+			return fmt.Errorf("failed to parse JSON to Protobuf: %v", err)
+		}
 
-	rpcMethod := fmt.Sprintf("/%s/%s", serviceName, methodName)
-	err = conn.Invoke(ctx, rpcMethod, reqMessage, resMessage)
-	if err != nil {
-		return fmt.Errorf("gRPC call failed: %v", err)
+		outputDesc := methodDesc.Output()
+		resMessage := dynamicpb.NewMessage(outputDesc)
+
+		rpcMethod := fmt.Sprintf("/%s/%s", serviceName, methodName)
+		err = conn.Invoke(ctx, rpcMethod, reqMessage, resMessage)
+		if err != nil {
+			return fmt.Errorf("gRPC call failed: %v", err)
+		}
+
+		responseJson, er := protojson.Marshal(resMessage)
+		if er != nil {
+			return fmt.Errorf("failed to serialize response to JSON: %v", er)
+		}
+		log.Printf("Response: %s", responseJson)
+	} else {
+		request := &codec.JsonFrame{RawData: jsonData}
+		response := &codec.JsonFrame{}
+		jsonOpts := []grpc.CallOption{
+			grpc.ForceCodec(&codec.JsonFrame{}),
+			grpc.CallContentSubtype("json"),
+		}
+		rpcMethod := fmt.Sprintf("/%s/%s", serviceName, methodName)
+		err = conn.Invoke(ctx, rpcMethod, request, response, jsonOpts...)
+		if err != nil {
+			return fmt.Errorf("gRPC call failed: %v", err)
+		}
+		log.Printf("Response: %s", response.RawData)
 	}
-
-	responseJson, err := protojson.Marshal(resMessage)
-	if err != nil {
-		return fmt.Errorf("failed to serialize response to JSON: %v", err)
-	}
-
-	log.Printf("Response: %s", responseJson)
 	return nil
 }
 
