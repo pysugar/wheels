@@ -11,10 +11,13 @@ Usage:
 Available Commands:
   completion  Generate the autocompletion script for the specified shell
   discovery   Discovery Service from NamingService
+  fetch       fetch http2 response from url
   fileserver  Start a File Server
+  grpc        call grpc service
   help        Help about any command
   httpproxy   Start a Transparent HTTP Proxy
   rand        Generate Rand String
+  read-proto  Read proto binary file
   registry    Register Service to NamingService
   signature   Signature Commands
   uuid        Generate UUIDv4 or UUIDv5
