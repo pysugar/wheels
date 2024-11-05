@@ -4,19 +4,19 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
-	"github.com/pysugar/wheels/binproto/grpc/codec"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
 	"log"
 	"strings"
 	"time"
 
+	"github.com/pysugar/wheels/binproto/grpc/codec"
 	"github.com/pysugar/wheels/cmd/base"
 	"github.com/spf13/cobra"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
 	reflectionpb "google.golang.org/grpc/reflection/grpc_reflection_v1"
+	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protodesc"
@@ -73,7 +73,8 @@ List all methods in a particular service: netool grpc grpc.server.com:443 list m
 					}
 				}
 			} else {
-				if err := makeGenericGrpcCall(ctx, target, op, []byte("{}"), grpc.WithTransportCredentials(cred)); err != nil {
+				data, _ := cmd.Flags().GetString("data")
+				if err := makeGenericGrpcCall(ctx, target, op, []byte(data), grpc.WithTransportCredentials(cred)); err != nil {
 					log.Printf("make generic grpc call error: %v\n", err)
 				}
 			}
