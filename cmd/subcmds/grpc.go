@@ -40,10 +40,10 @@ var (
 		Long: `
 call grpc service
 
-Send an empty request: netool grpc grpc.server.com:443 my.custom.server.Service/Method
-Send a request with a header and a body: netool grpc -H "Authorization: Bearer $token" -d '{"foo": "bar"}' grpc.server.com:443 my.custom.server.Service/Method
-List all services exposed by a server: netool grpc grpc.server.com:443 list
-List all methods in a particular service: netool grpc grpc.server.com:443 list my.custom.server.Service
+Send an empty request:                     netool grpc grpc.server.com:443 my.custom.server.Service/Method
+Send a request with a header and a body:   netool grpc -H "Authorization: Bearer $token" -d '{"foo": "bar"}' grpc.server.com:443 my.custom.server.Service/Method
+List all services exposed by a server:     netool grpc grpc.server.com:443 list
+List all methods in a particular service:  netool grpc grpc.server.com:443 list my.custom.server.Service
 `,
 		Run: func(cmd *cobra.Command, args []string) {
 			if len(args) < 2 {
