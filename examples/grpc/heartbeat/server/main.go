@@ -2,8 +2,7 @@ package main
 
 import (
 	"context"
-	"github.com/pysugar/wheels/binproto/grpc/codec"
-	"google.golang.org/grpc/encoding"
+	"google.golang.org/grpc/reflection"
 	"log"
 	"net"
 	"net/http"
@@ -12,9 +11,11 @@ import (
 
 	grpcprometheus "github.com/grpc-ecosystem/go-grpc-prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"github.com/pysugar/wheels/binproto/grpc/codec"
 	_ "github.com/pysugar/wheels/binproto/grpc/codec"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/channelz/service"
+	"google.golang.org/grpc/encoding"
 	"google.golang.org/grpc/grpclog"
 	"google.golang.org/grpc/health"
 	"google.golang.org/grpc/health/grpc_health_v1"
@@ -78,7 +79,7 @@ func main() {
 	healthServer.SetServingStatus("my_service", grpc_health_v1.HealthCheckResponse_SERVING)
 
 	grpc_health_v1.RegisterHealthServer(s, healthServer)
-	// reflection.RegisterV1(s)
+	reflection.RegisterV1(s)
 	service.RegisterChannelzServiceToServer(s)
 	grpcprometheus.Register(s)
 
