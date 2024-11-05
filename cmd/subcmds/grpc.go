@@ -31,6 +31,8 @@ import (
 	_ "google.golang.org/protobuf/types/known/wrapperspb"
 )
 
+const contextPathKey = "contextPath"
+
 var (
 	grpcCmd = &cobra.Command{
 		Use:   `grpc -d '{}' 127.0.0.1:50051 grpc.health.v1.Health/Check`,
@@ -61,6 +63,10 @@ List all methods in a particular service: netool grpc grpc.server.com:443 list m
 			op := args[1]
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer cancel()
+			contextPath, _ := cmd.Flags().GetString("context-path")
+			if contextPath != "" {
+				ctx = context.WithValue(ctx, contextPathKey, contextPath)
+			}
 			if strings.EqualFold(op, "list") {
 				if len(args) > 2 {
 					serviceName := args[2]
@@ -86,7 +92,7 @@ func init() {
 	grpcCmd.Flags().BoolP("plaintext", "p", false, "Use plain-text HTTP/2 when connecting to server (no TLS)")
 	grpcCmd.Flags().BoolP("insecure", "i", false, "Skip server certificate and domain verification (skip TLS)")
 	grpcCmd.Flags().StringP("data", "d", "{}", "request data")
-	grpcCmd.Flags().StringP("context-pah", "c", "", "context path")
+	grpcCmd.Flags().StringP("context-path", "c", "", "context path")
 	base.AddSubCommands(grpcCmd)
 }
 
@@ -300,6 +306,14 @@ func findMethodDescriptor(ctx context.Context, conn *grpc.ClientConn, serviceNam
 }
 
 func makeGenericGrpcCall(ctx context.Context, target, fullMethod string, jsonData []byte, opts ...grpc.DialOption) error {
+	if contextPath, ok := ctx.Value(contextPathKey).(string); ok {
+		opts = append(
+			opts,
+			grpc.WithUnaryInterceptor(contextPathUnaryInterceptor(contextPath)),
+			grpc.WithStreamInterceptor(contextPathStreamInterceptor(contextPath)),
+		)
+	}
+
 	conn, err := grpc.NewClient(target, opts...)
 	if err != nil {
 		return err
@@ -383,4 +397,44 @@ func newReflectionClient(ctx context.Context, conn *grpc.ClientConn, opts ...grp
 		return nil, err
 	}
 	return clientStream, nil
+}
+
+func contextPathStreamInterceptor(contextPath string) grpc.StreamClientInterceptor {
+	return func(
+		ctx context.Context,
+		desc *grpc.StreamDesc,
+		cc *grpc.ClientConn,
+		method string,
+		streamer grpc.Streamer,
+		opts ...grpc.CallOption,
+	) (grpc.ClientStream, error) {
+		spliter := "/"
+		if strings.HasPrefix(method, spliter) {
+			spliter = ""
+		}
+
+		modifiedMethod := "/" + contextPath + spliter + method
+		log.Printf("contextPathUnaryInterceptor called: %s -> %s\n", method, modifiedMethod)
+		return streamer(ctx, desc, cc, modifiedMethod, opts...)
+	}
+}
+
+func contextPathUnaryInterceptor(contextPath string) grpc.UnaryClientInterceptor {
+	return func(
+		ctx context.Context,
+		method string,
+		req interface{},
+		reply interface{},
+		cc *grpc.ClientConn,
+		invoker grpc.UnaryInvoker,
+		opts ...grpc.CallOption,
+	) error {
+		spliter := "/"
+		if strings.HasPrefix(method, spliter) {
+			spliter = ""
+		}
+		modifiedMethod := "/" + contextPath + spliter + method
+		log.Printf("contextPathUnaryInterceptor called: %s -> %s\n", method, modifiedMethod)
+		return invoker(ctx, modifiedMethod, req, reply, cc, opts...)
+	}
 }
