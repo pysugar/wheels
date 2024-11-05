@@ -39,10 +39,8 @@ func main() {
 	service.RegisterChannelzServiceToServer(grpcServer)
 	grpcprometheus.Register(grpcServer)
 
-	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		if r.ProtoMajor == 2 && strings.HasPrefix(r.Header.Get("Content-Type"), "application/grpc") {
-			grpcServer.ServeHTTP(w, r)
-		} else if r.URL.Path == "/health" {
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/health" {
 			fmt.Fprintln(w, "OK")
 		} else if r.URL.Path == "/metrics" {
 			promhttp.Handler().ServeHTTP(w, r)
@@ -52,11 +50,22 @@ func main() {
 	})
 
 	server := &http.Server{
-		Addr: ":8443",
+		Addr:    ":8443",
+		Handler: grpcMiddleware(grpcServer, handler),
 	}
 
 	log.Println("server listen on :8443")
 	if err := server.ListenAndServeTLS("server.crt", "server.key"); err != nil {
 		log.Fatalf("start server failure: %v", err)
 	}
+}
+
+func grpcMiddleware(grpcServer *grpc.Server, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.ProtoMajor == 2 && strings.HasPrefix(r.Header.Get("Content-Type"), "application/grpc") {
+			grpcServer.ServeHTTP(w, r)
+		} else {
+			next.ServeHTTP(w, r)
+		}
+	})
 }
