@@ -15,6 +15,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/metadata"
 	reflectionpb "google.golang.org/grpc/reflection/grpc_reflection_v1"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/encoding/protojson"
@@ -67,6 +68,26 @@ List all methods in a particular service:  netool grpc grpc.server.com:443 list 
 			if contextPath != "" {
 				ctx = context.WithValue(ctx, contextPathKey, contextPath)
 			}
+			headers, _ := cmd.Flags().GetStringArray("header")
+
+			md := make(map[string]string)
+			for _, header := range headers {
+				parts := strings.SplitN(header, ":", 2)
+				if len(parts) != 2 {
+					log.Printf("invalid header format: %s\n", header)
+					continue
+				}
+				key := strings.TrimSpace(parts[0])
+				value := strings.TrimSpace(parts[1])
+				md[strings.ToLower(key)] = value
+			}
+			mdPairs := []string{}
+			for key, value := range md {
+				mdPairs = append(mdPairs, key, value)
+			}
+			mdContext := metadata.Pairs(mdPairs...)
+			ctx = metadata.NewOutgoingContext(ctx, mdContext)
+
 			if strings.EqualFold(op, "list") {
 				if len(args) > 2 {
 					serviceName := args[2]
@@ -93,6 +114,7 @@ func init() {
 	grpcCmd.Flags().BoolP("insecure", "i", false, "Skip server certificate and domain verification (skip TLS)")
 	grpcCmd.Flags().StringP("data", "d", "{}", "request data")
 	grpcCmd.Flags().StringP("context-path", "c", "", "context path")
+	grpcCmd.Flags().StringArrayP("header", "H", []string{}, "Extra header to include in information sent")
 	base.AddSubCommands(grpcCmd)
 }
 

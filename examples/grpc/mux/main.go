@@ -46,6 +46,9 @@ func main() {
 	})
 	mux.HandleFunc("/grpc/", func(w http.ResponseWriter, r *http.Request) {
 		log.Printf("%s %s %s\n", r.Method, r.URL.Path, r.Proto)
+		for k, v := range r.Header {
+			log.Printf("Header[%q] = %q\n", k, v)
+		}
 		r.URL.Path = strings.TrimPrefix(r.URL.Path, "/grpc")
 		grpcServer.ServeHTTP(w, r)
 	})
