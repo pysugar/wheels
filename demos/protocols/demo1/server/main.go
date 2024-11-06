@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"github.com/pysugar/wheels/demos/protocols/demo1/codec"
+	"hash/crc32"
 	"io"
 	"net"
 )
@@ -40,16 +41,16 @@ func handleConnection(conn net.Conn) {
 		}
 
 		// Read the checksum
-		checksumBytes := make([]byte, 2)
+		checksumBytes := make([]byte, 4)
 		_, err = io.ReadFull(reader, checksumBytes)
 		if err != nil {
 			fmt.Println("Read Checksum Error:", err)
 			return
 		}
 
-		checksum := binary.BigEndian.Uint16(checksumBytes)
+		checksum := binary.BigEndian.Uint32(checksumBytes)
 		data := append(header, payload...)
-		calculatedChecksum := codec.CalculateChecksum(data)
+		calculatedChecksum := crc32.ChecksumIEEE(data)
 		if calculatedChecksum != checksum {
 			fmt.Println("Invalid checksum:", calculatedChecksum)
 			return

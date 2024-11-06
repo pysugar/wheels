@@ -20,7 +20,7 @@ func TestMessage_EncodeDecode(t *testing.T) {
 		t.Errorf("Encode Error: %v", err)
 		return
 	}
-	t.Logf("Encoded Message: %v", encodedAuth)
+	t.Logf("Encoded Message, len: %d, val: %v", len(encodedAuth), encodedAuth)
 
 	// Decode the message
 	decodedMsg, err := codec.Decode(encodedAuth)
