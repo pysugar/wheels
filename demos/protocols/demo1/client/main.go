@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"encoding/binary"
 	"fmt"
 	"github.com/pysugar/wheels/demos/protocols/demo1/codec"
@@ -12,16 +13,10 @@ import (
 	"time"
 )
 
-// Define server address
-const (
-	ServerAddress = "localhost:9000"
-)
-
 // SendHeartbeat sends a heartbeat message periodically
-func SendHeartbeat(conn net.Conn, stopChan chan struct{}) {
+func SendHeartbeat(ctx context.Context, conn net.Conn, msgID *uint32) {
 	ticker := time.NewTicker(30 * time.Second) // Send heartbeat every 30 seconds
 	defer ticker.Stop()
-	msgID := uint32(100) // Starting MsgID for heartbeat
 
 	for {
 		select {
@@ -29,7 +24,7 @@ func SendHeartbeat(conn net.Conn, stopChan chan struct{}) {
 			heartbeatMsg := &codec.Message{
 				Version: 1,
 				Type:    codec.MSG_TYPE_HEARTBEAT,
-				MsgID:   msgID,
+				MsgID:   *msgID,
 				Payload: []byte{},
 			}
 			encodedHeartbeat, err := heartbeatMsg.Encode()
@@ -43,8 +38,8 @@ func SendHeartbeat(conn net.Conn, stopChan chan struct{}) {
 				return
 			}
 			fmt.Println("Sent HEARTBEAT Message")
-			msgID++
-		case <-stopChan:
+			*msgID++
+		case <-ctx.Done():
 			fmt.Println("Stopping Heartbeat")
 			return
 		}
@@ -52,16 +47,19 @@ func SendHeartbeat(conn net.Conn, stopChan chan struct{}) {
 }
 
 func main() {
-	conn, err := net.Dial("tcp", ServerAddress)
+	conn, err := net.Dial("tcp", "localhost:9000")
 	if err != nil {
 		fmt.Println("Connection Error:", err)
 		return
 	}
 	defer conn.Close()
-	fmt.Println("Connected to server:", ServerAddress)
+	fmt.Println("Connected to server: localhost:9000")
+
+	// Create a cancellable context
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 
 	// Start a goroutine to receive messages from the server
-	stopHeartbeat := make(chan struct{})
 	go func() {
 		reader := bufio.NewReader(conn)
 		for {
@@ -72,20 +70,19 @@ func main() {
 				if err != io.EOF {
 					fmt.Println("Read Header Error:", err)
 				}
-				close(stopHeartbeat) // Stop heartbeat on connection close
+				cancel() // Signal to stop heartbeat
 				return
 			}
 
 			// Parse Length field (payload length)
 			length := binary.BigEndian.Uint16(header[2:4])
-			// No longer check for length == 0 as some message types may have zero-length payloads
 
 			// Read the payload
 			payload := make([]byte, length)
 			_, err = io.ReadFull(reader, payload)
 			if err != nil {
 				fmt.Println("Read Payload Error:", err)
-				close(stopHeartbeat)
+				cancel()
 				return
 			}
 
@@ -94,16 +91,17 @@ func main() {
 			_, err = io.ReadFull(reader, checksumBytes)
 			if err != nil {
 				fmt.Println("Read Checksum Error:", err)
-				close(stopHeartbeat)
+				cancel()
 				return
 			}
 			checksum := binary.BigEndian.Uint32(checksumBytes)
 
+			// Combine header and payload for checksum verification
 			data := append(header, payload...)
 			calculatedChecksum := crc32.ChecksumIEEE(data)
 			if calculatedChecksum != checksum {
 				fmt.Printf("Invalid checksum: expected %d, got %d\n", checksum, calculatedChecksum)
-				close(stopHeartbeat)
+				cancel()
 				return
 			}
 
@@ -111,7 +109,7 @@ func main() {
 			msg, err := codec.Decode(append(data, checksumBytes...))
 			if err != nil {
 				fmt.Println("Decode Message Error:", err)
-				close(stopHeartbeat)
+				cancel()
 				return
 			}
 
@@ -125,8 +123,11 @@ func main() {
 		}
 	}()
 
+	// Initialize message ID counter
+	var msgID uint32 = 2
+
 	// Start sending heartbeat messages
-	go SendHeartbeat(conn, stopHeartbeat)
+	go SendHeartbeat(ctx, conn, &msgID)
 
 	// Send authentication message
 	authPayload := []byte("user:password")
@@ -139,21 +140,19 @@ func main() {
 	encodedAuth, err := authMsg.Encode()
 	if err != nil {
 		fmt.Println("Encode Auth Error:", err)
-		close(stopHeartbeat)
+		cancel()
 		return
 	}
-
 	_, err = conn.Write(encodedAuth)
 	if err != nil {
 		fmt.Println("Write Auth Error:", err)
-		close(stopHeartbeat)
+		cancel()
 		return
 	}
 	fmt.Println("Sent AUTH Message")
 
 	// Read user input and send text messages
 	scanner := bufio.NewScanner(os.Stdin)
-	msgID := uint32(2)
 	for {
 		fmt.Print("Enter message (type 'exit' to quit): ")
 		if !scanner.Scan() {
@@ -183,7 +182,8 @@ func main() {
 		msgID++
 	}
 
-	// Close the heartbeat goroutine
-	close(stopHeartbeat)
+	// Signal heartbeat to stop and wait briefly to ensure goroutines exit
+	cancel()
+	time.Sleep(1 * time.Second)
 	fmt.Println("Client exiting")
 }
