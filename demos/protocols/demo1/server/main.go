@@ -30,10 +30,6 @@ func handleConnection(conn net.Conn) {
 
 		// Parse Length field (payload length)
 		length := binary.BigEndian.Uint16(header[2:4])
-		if length == 0 {
-			fmt.Println("Invalid payload length:", length)
-			return
-		}
 
 		// Read the payload
 		payload := make([]byte, length)
@@ -50,24 +46,42 @@ func handleConnection(conn net.Conn) {
 			fmt.Println("Read Checksum Error:", err)
 			return
 		}
-		checksum := binary.BigEndian.Uint16(checksumBytes)
 
-		// Combine header and payload for checksum verification
+		checksum := binary.BigEndian.Uint16(checksumBytes)
 		data := append(header, payload...)
+		calculatedChecksum := codec.CalculateChecksum(data)
+		if calculatedChecksum != checksum {
+			fmt.Println("Invalid checksum:", calculatedChecksum)
+			return
+		}
+
+		data = append(data, checksumBytes...)
 
 		// Decode the message
-		msg, err := codec.Decode(append(data, checksumBytes...))
+		msg, err := codec.Decode(data)
 		if err != nil {
 			fmt.Println("Decode Message Error:", err)
 			return
 		}
 
-		if msg.Checksum != checksum {
-			fmt.Println("Checksum Error")
-			return
-		}
+		// Handle different message types
+		switch msg.Type {
+		case codec.MSG_TYPE_AUTH:
+			fmt.Printf("Received AUTH Message: ID=%d, Payload=%s\n", msg.MsgID, string(msg.Payload))
+			// Here you can add authentication logic
+			// For simplicity, assume authentication is always successful
 
-		fmt.Printf("Received Message: Type=%d, ID=%d, Payload=%s\n", msg.Type, msg.MsgID, string(msg.Payload))
+		case codec.MSG_TYPE_HEARTBEAT:
+			fmt.Printf("Received HEARTBEAT Message: ID=%d\n", msg.MsgID)
+			// Handle heartbeat (e.g., update last active time)
+
+		case codec.MSG_TYPE_TEXT:
+			fmt.Printf("Received TEXT Message: ID=%d, Payload=%s\n", msg.MsgID, string(msg.Payload))
+			// Here you can add logic to forward the message to other clients
+
+		default:
+			fmt.Printf("Received Unknown Message Type: %d\n", msg.Type)
+		}
 
 		// Send ACK message
 		ackMsg := &codec.Message{

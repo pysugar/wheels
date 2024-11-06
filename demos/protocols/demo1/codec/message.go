@@ -38,7 +38,7 @@ func (m *Message) Encode() ([]byte, error) {
 	copy(buf[8:8+m.Length], m.Payload)
 
 	// Calculate checksum for the entire message excluding the checksum field itself
-	m.Checksum = calculateChecksum(buf[:8+m.Length])
+	m.Checksum = CalculateChecksum(buf[:8+m.Length])
 	binary.BigEndian.PutUint16(buf[8+m.Length:], m.Checksum)
 
 	return buf, nil
@@ -66,7 +66,7 @@ func Decode(data []byte) (*Message, error) {
 	}
 
 	// Verify checksum
-	calculated := calculateChecksum(data[:8+msg.Length])
+	calculated := CalculateChecksum(data[:8+msg.Length])
 	if msg.Checksum != calculated {
 		return nil, errors.New("checksum mismatch")
 	}
@@ -74,8 +74,7 @@ func Decode(data []byte) (*Message, error) {
 	return msg, nil
 }
 
-// Simple checksum calculation (sum of all bytes)
-func calculateChecksum(data []byte) uint16 {
+func CalculateChecksum(data []byte) uint16 {
 	var sum uint32
 	for _, b := range data {
 		sum += uint32(b)
