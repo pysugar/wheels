@@ -39,6 +39,22 @@ func TestRightShift(t *testing.T) {
 	fmt.Printf("int32 logical right shift 3:\t (binary: %032b) %d\n", d, d)
 }
 
+func TestZigZag(t *testing.T) {
+	for i := int32(0); i < 10; i++ {
+		t.Logf("[encode] origin: %d, zigzap: %d", i, ZigZagEncode32(i))
+	}
+	for i := int32(-10); i < 0; i++ {
+		t.Logf("[encode]origin: %d, zigzap: %d", i, ZigZagEncode32(i))
+	}
+
+	for i := uint32(0); i < 20; i += 2 {
+		t.Logf("[decode] origin: %d, zigzap: %d", i, ZigZagDecode32(i))
+	}
+	for i := uint32(1); i < 20; i += 2 {
+		t.Logf("[decode]origin: %d, zigzap: %d", i, ZigZagDecode32(i))
+	}
+}
+
 func printInt32Binary(n int32) {
 	fmt.Printf("int32: %d\n", n)
 	fmt.Printf("Binary: %032b\n", uint32(n))
@@ -55,4 +71,12 @@ func logicalRightShiftInt32(n int32, shift uint) int32 {
 
 func arithmeticRightShiftInt32(n int32, shift uint) int32 {
 	return n >> shift
+}
+
+func ZigZagEncode32(n int32) uint32 {
+	return uint32((n << 1) ^ (n >> 31))
+}
+
+func ZigZagDecode32(n uint32) int32 {
+	return int32((n >> 1) ^ uint32(-(n & 1)))
 }
