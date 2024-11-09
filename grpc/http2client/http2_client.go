@@ -22,25 +22,29 @@ import (
 
 type (
 	activeStream struct {
-		streamId    uint32
-		activeAt    time.Time
-		doneCh      chan struct{}
-		grpcStatus  int
-		grpcMessage string
-		payload     []byte
-		mu          sync.Mutex
+		streamId        uint32
+		activeAt        time.Time
+		doneCh          chan struct{}
+		grpcStatus      int
+		grpcMessage     string
+		compressionAlgo string
+		payload         []byte
+		mu              sync.Mutex
 	}
 
 	grpcClient struct {
 		serverURL     *url.URL
+		conn          net.Conn
 		framer        *http2.Framer
 		activeStreams sync.Map // streamID -> activeStream
 		streamIdGen   uint32
+		ctx           context.Context
 		cancel        context.CancelFunc
 		encoder       *hpack.Encoder
 		decoder       *hpack.Decoder
-		mu            sync.Mutex   // 保护 encoder 和 encoderBuf
-		encoderBuf    bytes.Buffer // 编码缓冲区
+		encoderBuf    bytes.Buffer // encoder buffer
+		encodeMu      sync.Mutex   // protect encoder and encoderBuf
+		writeMu       sync.Mutex
 	}
 
 	GRPCClient interface {
@@ -50,15 +54,17 @@ type (
 )
 
 func NewGRPCClient(serverURL *url.URL) (GRPCClient, error) {
-	framer, err := newFramer(serverURL)
+	conn, err := openConn(serverURL)
 	if err != nil {
 		return nil, err
 	}
 
+	framer := http2.NewFramer(conn, conn)
 	ctx, cancel := context.WithCancel(context.Background())
 	client := &grpcClient{
 		serverURL: serverURL,
 		framer:    framer,
+		ctx:       ctx,
 		cancel:    cancel,
 	}
 	client.encoder = hpack.NewEncoder(&client.encoderBuf)
@@ -77,6 +83,9 @@ func NewGRPCClient(serverURL *url.URL) (GRPCClient, error) {
 
 func (c *grpcClient) Close() {
 	c.cancel()
+	if c.conn != nil {
+		c.conn.Close()
+	}
 }
 
 func (c *grpcClient) Call(ctx context.Context, serviceMethod string, req, res proto.Message) error {
@@ -99,30 +108,35 @@ func (c *grpcClient) Call(ctx context.Context, serviceMethod string, req, res pr
 	}()
 
 	headers := grpcHeaders(c.serverURL, serviceMethod)
+	c.writeMu.Lock()
 	if er := c.framer.WriteHeaders(http2.HeadersFrameParam{
 		StreamID:      streamId,
 		BlockFragment: c.encodeHpackHeaders(headers),
 		EndHeaders:    true,
 	}); er != nil {
+		c.writeMu.Unlock()
 		return er
 	}
 
 	if er := c.framer.WriteData(streamId, true, http2tool.EncodeGrpcPayload(reqBytes)); er != nil {
+		c.writeMu.Unlock()
 		return er
 	}
+	c.writeMu.Unlock()
 
 	select {
 	case <-active.doneCh:
 		if active.grpcStatus != 0 {
 			return fmt.Errorf("[%d] grpc error: %s", active.grpcStatus, active.grpcMessage)
 		}
-
-		if er := http2tool.DecodeGrpcFrame(active.payload, res); er != nil {
+		if er := http2tool.DecodeGrpcFrameWithDecompress(active.payload, active.compressionAlgo, res); er != nil {
 			return fmt.Errorf("failed to decode response: %w", er)
 		}
 		return nil
 	case <-ctx.Done():
 		return ctx.Err()
+	case <-c.ctx.Done():
+		return c.ctx.Err()
 	}
 }
 
@@ -144,6 +158,10 @@ func (c *grpcClient) readLoop(ctx context.Context) {
 }
 
 func (c *grpcClient) readFrame(ctx context.Context) error {
+	if c.ctx.Err() != nil {
+		return c.ctx.Err()
+	}
+
 	if ctx.Err() != nil {
 		return ctx.Err()
 	}
@@ -186,6 +204,8 @@ func (c *grpcClient) readFrame(ctx context.Context) error {
 						}
 					} else if hf.Name == "grpc-message" {
 						active.grpcMessage = hf.Value
+					} else if hf.Name == "grpc-encoding" {
+						active.compressionAlgo = hf.Value
 					}
 				}
 				if f.StreamEnded() {
@@ -200,12 +220,16 @@ func (c *grpcClient) readFrame(ctx context.Context) error {
 		if f.IsAck() {
 			return nil
 		}
+		c.writeMu.Lock()
+		defer c.writeMu.Unlock()
 		return c.framer.WriteSettingsAck()
 	case *http2.PushPromiseFrame: // 5
 	case *http2.PingFrame: // 6
 		if f.IsAck() {
 			return nil
 		}
+		c.writeMu.Lock()
+		defer c.writeMu.Unlock()
 		return c.framer.WritePing(true, f.Data)
 	case *http2.GoAwayFrame: // 7
 		log.Printf("Received GOAWAY frame: LastStreamID=%d, ErrorCode=%d, DebugData=%s", f.LastStreamID,
@@ -236,8 +260,8 @@ func grpcHeaders(serverURL *url.URL, fullMethod string) []hpack.HeaderField {
 }
 
 func (c *grpcClient) encodeHpackHeaders(headers []hpack.HeaderField) []byte {
-	c.mu.Lock()
-	defer c.mu.Unlock()
+	c.encodeMu.Lock()
+	defer c.encodeMu.Unlock()
 
 	c.encoderBuf.Reset()
 	for _, header := range headers {
@@ -266,7 +290,7 @@ func (c *grpcClient) encodeHpackHeaders(headers []hpack.HeaderField) []byte {
 //	}
 //	return headersBuffer.Bytes()
 //}
-//
+
 //func decodeHpackHeaders(headerPayload []byte) []hpack.HeaderField {
 //	headers := make([]hpack.HeaderField, 0)
 //
@@ -286,7 +310,30 @@ func (c *grpcClient) encodeHpackHeaders(headers []hpack.HeaderField) []byte {
 //	return headers
 //}
 
-func newFramer(serverURL *url.URL) (*http2.Framer, error) {
+//func newFramer(serverURL *url.URL) (*http2.Framer, error) {
+//	conn, err := net.Dial("tcp", serverURL.Host)
+//	if err != nil {
+//		log.Printf("Failed to connect: %v\n", err)
+//		return nil, err
+//	}
+//
+//	if serverURL.Scheme == "https" {
+//		tlsConfig := &tls.Config{
+//			InsecureSkipVerify: true,
+//			NextProtos:         []string{"h2"},
+//		}
+//		conn = tls.Client(conn, tlsConfig)
+//	} else {
+//		clientPreface := []byte("PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n")
+//		log.Printf("Send HTTP/2 Client Preface: %s\n", clientPreface)
+//		if _, er := conn.Write(clientPreface); er != nil {
+//			return nil, er
+//		}
+//	}
+//	return http2.NewFramer(conn, conn), nil
+//}
+
+func openConn(serverURL *url.URL) (net.Conn, error) {
 	conn, err := net.Dial("tcp", serverURL.Host)
 	if err != nil {
 		log.Printf("Failed to connect: %v\n", err)
@@ -306,5 +353,5 @@ func newFramer(serverURL *url.URL) (*http2.Framer, error) {
 			return nil, er
 		}
 	}
-	return http2.NewFramer(conn, conn), nil
+	return conn, nil
 }

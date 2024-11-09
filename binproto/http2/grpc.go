@@ -61,7 +61,28 @@ func DecodeGrpcFrame(data []byte, message proto.Message) error {
 	messageData := data[5 : 5+messageLength]
 
 	if compressedFlag != 0 {
-		decompressedData, err := decompress(messageData, "gzip")
+		return fmt.Errorf("compressed responses are not supported in this client")
+	}
+
+	err := proto.Unmarshal(messageData, message)
+	if err != nil {
+		log.Printf("Failed to unmarshal response: %v", err)
+		return err
+	}
+	return nil
+}
+
+func DecodeGrpcFrameWithDecompress(data []byte, compressionAlgo string, message proto.Message) error {
+	if len(data) < 5 {
+		return fmt.Errorf("invalid grpc frame data")
+	}
+	compressedFlag := data[0]
+	messageLength := binary.BigEndian.Uint32(data[1:5])
+
+	messageData := data[5 : 5+messageLength]
+
+	if compressedFlag != 0 {
+		decompressedData, err := decompress(messageData, compressionAlgo)
 		if err != nil {
 			return fmt.Errorf("failed to decompress grpc message: %w", err)
 		}

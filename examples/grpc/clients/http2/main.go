@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"net/url"
+	"sync"
 	"time"
 
 	"github.com/pysugar/wheels/grpc/http2client"
@@ -23,13 +24,23 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	for i := 0; i < 5; i++ {
-		callHealthCheck(ctx, client)
+	//for i := 0; i < 100; i++ {
+	//	callHealthCheck(ctx, client)
+	//}
+
+	var wg sync.WaitGroup
+	for i := 0; i < 30; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			callHealthCheck(ctx, client)
+		}()
 	}
+	wg.Wait()
 }
 
 func callHealthCheck(ctx context.Context, client http2client.GRPCClient) {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
 	req := &grpchealthv1.HealthCheckRequest{Service: ""}
