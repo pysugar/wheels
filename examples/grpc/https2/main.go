@@ -9,7 +9,7 @@ import (
 
 	grpcprometheus "github.com/grpc-ecosystem/go-grpc-prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
-	grpcextensions "github.com/pysugar/wheels/protocol/grpc/extensions"
+	grpcextensions "github.com/pysugar/wheels/grpc/extensions"
 	httpextensions "github.com/pysugar/wheels/protocol/http/extensions"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/channelz/service"

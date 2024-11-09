@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"github.com/pysugar/wheels/protocol/grpc/extensions"
 	"log"
 	"net/http"
 	"strings"
@@ -30,7 +29,7 @@ func main() {
 	grpcServer := grpc.NewServer(
 		grpc.KeepaliveParams(kaParams),
 		grpc.StreamInterceptor(grpcprometheus.StreamServerInterceptor),
-		grpc.ChainUnaryInterceptor(grpcprometheus.UnaryServerInterceptor, extensions.LoggingUnaryServerInterceptor),
+		grpc.ChainUnaryInterceptor(grpcprometheus.UnaryServerInterceptor, interceptors.LoggingUnaryServerInterceptor),
 	)
 
 	healthServer := health.NewServer()
