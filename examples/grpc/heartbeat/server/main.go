@@ -11,6 +11,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/pysugar/wheels/binproto/grpc/codec"
 	_ "github.com/pysugar/wheels/binproto/grpc/codec"
+	"github.com/pysugar/wheels/grpc/interceptors"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/channelz/service"
 	"google.golang.org/grpc/encoding"
