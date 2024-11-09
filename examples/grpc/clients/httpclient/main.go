@@ -7,11 +7,17 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net"
 	"net/http"
+	"net/http/httptrace"
+	"net/url"
 	"strconv"
 	"sync"
+	"sync/atomic"
+	"time"
 
 	http2tool "github.com/pysugar/wheels/binproto/http2"
+	"github.com/pysugar/wheels/protocol/http/extensions"
 	"golang.org/x/net/http2"
 	grpchealthv1 "google.golang.org/grpc/health/grpc_health_v1"
 	"google.golang.org/protobuf/proto"
@@ -19,6 +25,7 @@ import (
 
 type (
 	GRPCRequest struct {
+		Scheme     string
 		ServerAddr string
 		GrpcMethod string
 		Payload    []byte
@@ -29,32 +36,46 @@ type (
 		Message    string
 		Payload    []byte
 	}
+)
 
-	GRPCClient struct {
-		client    *http.Client
-		scheme    string
-		mutex     sync.Mutex
-		streamMap map[uint32]*GRPCResponse
-	}
+var (
+	traceIdGen uint32
 )
 
 func main() {
-	tlsConfig := &tls.Config{
-		InsecureSkipVerify: true,
-		NextProtos:         []string{"h2"},
+	// serverURL, _ := url.Parse("https://127.0.0.1:8443")
+	serverURL, _ := url.Parse("http://127.0.0.1:50051")
+	var transport http.RoundTripper
+	if serverURL.Scheme == "https" {
+		tlsConfig := &tls.Config{
+			InsecureSkipVerify: true,
+			NextProtos:         []string{"h2"},
+		}
+		transport = &http2.Transport{
+			TLSClientConfig: tlsConfig,
+		}
+	} else {
+		transport = &http2.Transport{
+			AllowHTTP: true, // allow h2c
+			DialTLSContext: func(ctx context.Context, network, addr string, cfg *tls.Config) (net.Conn, error) {
+				return net.Dial(network, addr)
+			},
+		}
 	}
 
-	client := NewGRPCClient(tlsConfig)
-	serverAddr := "127.0.0.1:8443"
+	var client = &http.Client{
+		Transport: transport,
+		Timeout:   5 * time.Second,
+	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	var wg sync.WaitGroup
-	for i := 0; i < 10; i++ {
+	for i := 0; i < 3; i++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			if err := sendHealthCheckRequest(ctx, client, serverAddr); err != nil {
+			if err := sendHealthCheckRequest(ctx, client, serverURL); err != nil {
 				log.Printf("send health check request failed: %v\n", err)
 			}
 		}()
@@ -63,7 +84,7 @@ func main() {
 	wg.Wait()
 }
 
-func sendHealthCheckRequest(ctx context.Context, client *GRPCClient, serverAddr string) error {
+func sendHealthCheckRequest(ctx context.Context, client *http.Client, serverURL *url.URL) error {
 	arg := &grpchealthv1.HealthCheckRequest{}
 	reqArg, err := proto.Marshal(arg)
 	if err != nil {
@@ -72,13 +93,15 @@ func sendHealthCheckRequest(ctx context.Context, client *GRPCClient, serverAddr 
 
 	payload := http2tool.EncodeGrpcPayload(reqArg)
 	log.Printf("request payload: %v\n", payload)
-	req := GRPCRequest{
-		ServerAddr: serverAddr,
+	req := &GRPCRequest{
+		Scheme:     serverURL.Scheme,
+		ServerAddr: serverURL.Host,
 		GrpcMethod: "grpc.health.v1.Health/Check",
 		Payload:    payload,
 	}
 
-	resp, err := client.CallGRPCService(ctx, req)
+	ctx = httptrace.WithClientTrace(ctx, extensions.NewDebugClientTrace(fmt.Sprintf("req-%03d", atomic.AddUint32(&traceIdGen, 1))))
+	resp, err := callGRPCService(ctx, client, req)
 	if err != nil {
 		log.Printf("gRPC invoke failure: %v\n", err)
 		return err
@@ -99,9 +122,9 @@ func sendHealthCheckRequest(ctx context.Context, client *GRPCClient, serverAddr 
 	return nil
 }
 
-func (c *GRPCClient) CallGRPCService(ctx context.Context, req GRPCRequest) (*GRPCResponse, error) {
-	requestUrl := fmt.Sprintf("%s://%s/%s", c.scheme, req.ServerAddr, req.GrpcMethod)
-	httpReq, err := http.NewRequestWithContext(ctx, "POST", requestUrl, bytes.NewReader(req.Payload))
+func callGRPCService(ctx context.Context, client *http.Client, grpcReq *GRPCRequest) (*GRPCResponse, error) {
+	requestUrl := fmt.Sprintf("%s://%s/%s", grpcReq.Scheme, grpcReq.ServerAddr, grpcReq.GrpcMethod)
+	httpReq, err := http.NewRequestWithContext(ctx, "POST", requestUrl, bytes.NewReader(grpcReq.Payload))
 	if err != nil {
 		return nil, err
 	}
@@ -109,7 +132,7 @@ func (c *GRPCClient) CallGRPCService(ctx context.Context, req GRPCRequest) (*GRP
 	httpReq.Header.Set("Content-Type", "application/grpc+proto")
 	httpReq.Header.Set("TE", "trailers")
 
-	resp, err := c.client.Do(httpReq)
+	resp, err := client.Do(httpReq)
 	if err != nil {
 		return nil, err
 	}
@@ -136,20 +159,4 @@ func (c *GRPCClient) CallGRPCService(ctx context.Context, req GRPCRequest) (*GRP
 		Message:    grpcMessage,
 		Payload:    body,
 	}, nil
-}
-
-func NewGRPCClient(tlsConfig *tls.Config) *GRPCClient {
-	transport := &http2.Transport{
-		TLSClientConfig: tlsConfig,
-	}
-
-	client := &http.Client{
-		Transport: transport,
-	}
-
-	return &GRPCClient{
-		client:    client,
-		scheme:    "https",
-		streamMap: make(map[uint32]*GRPCResponse),
-	}
 }

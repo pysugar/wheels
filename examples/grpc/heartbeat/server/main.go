@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"google.golang.org/grpc/reflection"
 	"log"
 	"net"
 	"net/http"
@@ -20,6 +19,7 @@ import (
 	"google.golang.org/grpc/health"
 	"google.golang.org/grpc/health/grpc_health_v1"
 	"google.golang.org/grpc/keepalive"
+	"google.golang.org/grpc/reflection"
 )
 
 const (
