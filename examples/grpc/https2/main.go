@@ -9,6 +9,8 @@ import (
 
 	grpcprometheus "github.com/grpc-ecosystem/go-grpc-prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	grpcextensions "github.com/pysugar/wheels/protocol/grpc/extensions"
+	httpextensions "github.com/pysugar/wheels/protocol/http/extensions"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/channelz/service"
 	"google.golang.org/grpc/health"
@@ -29,7 +31,7 @@ func main() {
 	grpcServer := grpc.NewServer(
 		grpc.KeepaliveParams(kaParams),
 		grpc.StreamInterceptor(grpcprometheus.StreamServerInterceptor),
-		grpc.ChainUnaryInterceptor(grpcprometheus.UnaryServerInterceptor),
+		grpc.ChainUnaryInterceptor(grpcprometheus.UnaryServerInterceptor, grpcextensions.LoggingUnaryServerInterceptor),
 	)
 
 	healthServer := health.NewServer()
@@ -51,7 +53,7 @@ func main() {
 
 	server := &http.Server{
 		Addr:    ":8443",
-		Handler: grpcMiddleware(grpcServer, handler),
+		Handler: httpextensions.LoggingMiddleware(grpcMiddleware(grpcServer, handler)),
 	}
 
 	log.Println("server listen on :8443")

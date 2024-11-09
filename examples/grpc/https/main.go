@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"github.com/pysugar/wheels/protocol/grpc/extensions"
 	"log"
 	"net/http"
 	"strings"
@@ -29,7 +30,7 @@ func main() {
 	grpcServer := grpc.NewServer(
 		grpc.KeepaliveParams(kaParams),
 		grpc.StreamInterceptor(grpcprometheus.StreamServerInterceptor),
-		grpc.ChainUnaryInterceptor(grpcprometheus.UnaryServerInterceptor),
+		grpc.ChainUnaryInterceptor(grpcprometheus.UnaryServerInterceptor, extensions.LoggingUnaryServerInterceptor),
 	)
 
 	healthServer := health.NewServer()
@@ -41,6 +42,10 @@ func main() {
 
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		if r.ProtoMajor == 2 && strings.HasPrefix(r.Header.Get("Content-Type"), "application/grpc") {
+			defer func() {
+				log.Printf("process grpc request\n\treq headers: %v\n\tres headers: %v\n", r.Header, w.Header())
+			}()
+			log.Printf("%s %s %s\n", r.Method, r.URL.Path, r.Proto)
 			grpcServer.ServeHTTP(w, r)
 		} else if r.URL.Path == "/health" {
 			fmt.Fprintln(w, "OK")
