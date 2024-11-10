@@ -351,17 +351,17 @@ func (c *grpcClient) encodeHpackHeaders(headers []hpack.HeaderField) []byte {
 	return c.encoderBuf.Bytes()[before:after]
 }
 
-func dialConn(serverURL *url.URL) (net.Conn, error) {
+func dialConn(serverURL *url.URL) (conn net.Conn, err error) {
 	addr := getHostAddress(serverURL)
 	if serverURL.Scheme == "https" {
 		tlsConfig := &tls.Config{
 			InsecureSkipVerify: true, // NOTE: For testing only. Do not use in production.
 			NextProtos:         []string{"h2"},
 		}
-		conn, err := tls.Dial("tcp", addr, tlsConfig)
+		conn, err = tls.Dial("tcp", addr, tlsConfig)
 		if err != nil {
 			log.Printf("dial conn err: %v\n", err)
-			return nil, err
+			return
 		}
 
 		//if er := conn.Handshake(); er != nil {
@@ -374,27 +374,26 @@ func dialConn(serverURL *url.URL) (net.Conn, error) {
 		//	return nil, fmt.Errorf("failed to negotiate HTTP/2 via ALPN, got %s", np)
 		//}
 
-		log.Printf("Send HTTP/2 Client Preface: %s\n", clientPreface)
-		if _, er := conn.Write(clientPreface); er != nil {
-			conn.Close()
-			return nil, er
-		}
+		//log.Printf("Send HTTP/2 Client Preface: %s\n", clientPreface)
+		//if _, er := conn.Write(clientPreface); er != nil {
+		//	conn.Close()
+		//	return nil, er
+		//}
 
-		return conn, nil
 	} else {
-		conn, err := net.Dial("tcp", addr)
+		conn, err = net.Dial("tcp", addr)
 		if err != nil {
 			log.Printf("dial conn err: %v\n", err)
-			return nil, err
+			return
 		}
-
-		log.Printf("Send HTTP/2 Client Preface: %s\n", clientPreface)
-		if _, er := conn.Write(clientPreface); er != nil {
-			conn.Close()
-			return nil, er
-		}
-		return conn, nil
 	}
+
+	log.Printf("Send HTTP/2 Client Preface: %s\n", clientPreface)
+	if _, er := conn.Write(clientPreface); er != nil {
+		conn.Close()
+		err = er
+	}
+	return
 	//
 	//conn, err := net.Dial("tcp", serverURL.Host)
 	//if err != nil {

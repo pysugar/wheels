@@ -81,8 +81,8 @@ func main() {
 
 func startPrometheus(logger grpclog.LoggerV2) {
 	http.Handle("/metrics", promhttp.Handler())
-	logger.Info("Serving metrics on :9092/metrics")
-	if err := http.ListenAndServe(":9092", nil); err != nil {
+	logger.Info("Serving metrics on :9090/metrics")
+	if err := http.ListenAndServe(":9090", nil); err != nil {
 		logger.Fatalf("Failed to serve metrics: %v", err)
 	}
 }
