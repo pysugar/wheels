@@ -10,6 +10,7 @@ import (
 	"net"
 	"net/url"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -50,6 +51,7 @@ type (
 		encodeMu      sync.Mutex   // protect encoder and encoderBuf
 		decodeMu      sync.Mutex
 		writeMu       sync.Mutex
+		settingsAcked chan struct{}
 	}
 
 	GRPCClient interface {
@@ -71,22 +73,27 @@ func NewGRPCClient(serverURL *url.URL) (GRPCClient, error) {
 	framer := http2.NewFramer(conn, conn)
 	ctx, cancel := context.WithCancel(context.Background())
 	client := &grpcClient{
-		serverURL: serverURL,
-		framer:    framer,
-		ctx:       ctx,
-		cancel:    cancel,
+		serverURL:     serverURL,
+		framer:        framer,
+		ctx:           ctx,
+		cancel:        cancel,
+		settingsAcked: make(chan struct{}),
 	}
 	client.encoder = hpack.NewEncoder(&client.encoderBuf)
 	client.decoder = hpack.NewDecoder(4096, func(f hpack.HeaderField) {
 		log.Printf("emit: %+v", f)
 	})
 
-	if er := framer.WriteSettings(); er != nil {
+	if er := framer.WriteSettings(http2.Setting{
+		ID:  http2.SettingMaxConcurrentStreams,
+		Val: 1024,
+	}); er != nil {
 		client.Close()
 		log.Printf("write settings failed: %v", er)
 		return nil, er
 	}
-
+	log.Printf("Client Write Settings")
+	time.Sleep(2 * time.Second)
 	go client.readLoop(ctx)
 	return client, nil
 }
@@ -99,6 +106,13 @@ func (c *grpcClient) Close() {
 }
 
 func (c *grpcClient) Call(ctx context.Context, serviceMethod string, req, res proto.Message) error {
+	select {
+	case <-c.settingsAcked:
+		// 继续发送请求
+	case <-time.After(time.Second * 5):
+		return fmt.Errorf("timeout waiting for settings ack")
+	}
+
 	reqBytes, err := proto.Marshal(req)
 	if err != nil {
 		return fmt.Errorf("failed to marshal request: %w", err)
@@ -277,12 +291,18 @@ func (c *grpcClient) processSettingsFrame(f *http2.SettingsFrame) error {
 		settings := f.Setting(i)
 		log.Printf("\t%+v: %d\n", settings.ID, settings.Val)
 	}
+
 	if f.IsAck() {
 		return nil
 	}
 	c.writeMu.Lock()
 	defer c.writeMu.Unlock()
-	return c.framer.WriteSettingsAck()
+	err := c.framer.WriteSettingsAck()
+	if err != nil {
+		return err
+	}
+	close(c.settingsAcked)
+	return nil
 }
 
 func (c *grpcClient) processPingFrame(f *http2.PingFrame) error {
@@ -310,6 +330,9 @@ func (c *grpcClient) processGoAwayFrame(f *http2.GoAwayFrame) error {
 }
 
 func grpcHeaders(serverURL *url.URL, fullMethod string) []hpack.HeaderField {
+	if !strings.HasPrefix(fullMethod, "/") {
+		fullMethod = "/" + fullMethod
+	}
 	return []hpack.HeaderField{
 		{Name: ":method", Value: "POST"},
 		{Name: ":scheme", Value: serverURL.Scheme},

@@ -13,8 +13,8 @@ import (
 )
 
 func main() {
-	// serverURL, _ := url.Parse("http://127.0.0.1:8080")
-	serverURL, _ := url.Parse("https://127.0.0.1:8443")
+	serverURL, _ := url.Parse("http://127.0.0.1:8080")
+	// serverURL, _ := url.Parse("https://127.0.0.1:8443")
 	// serverURL, _ := url.Parse("http://127.0.0.1:50051")
 
 	client, err := http2client.NewGRPCClient(serverURL)
@@ -48,7 +48,7 @@ func callHealthCheck(ctx context.Context, client http2client.GRPCClient) {
 
 	req := &grpchealthv1.HealthCheckRequest{Service: ""}
 	res := &grpchealthv1.HealthCheckResponse{}
-	serviceMethod := "grpc.health.v1.Health/Check"
+	serviceMethod := "/grpc.health.v1.Health/Check"
 
 	if err := client.Call(ctx, serviceMethod, req, res); err != nil {
 		log.Printf("call service failed: %v", err)
