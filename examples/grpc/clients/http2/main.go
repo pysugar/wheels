@@ -16,6 +16,7 @@ import (
 var (
 	rawURL      = flag.String("url", "http://127.0.0.1:8080", "Server URL")
 	concurrency = flag.Int("concurrency", 1, "concurrency number")
+	contextPath = flag.String("context-path", "", "Context Path")
 )
 
 func main() {
@@ -47,7 +48,7 @@ func main() {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			callHealthCheck(ctx, client)
+			callHealthCheck(ctx, client, *contextPath)
 		}()
 	}
 	wg.Wait()
@@ -56,13 +57,16 @@ func main() {
 	fmt.Println("Done")
 }
 
-func callHealthCheck(ctx context.Context, client http2client.GRPCClient) {
+func callHealthCheck(ctx context.Context, client http2client.GRPCClient, contextPath string) {
 	ctx, cancel := context.WithTimeout(context.Background(), 1000*time.Second)
 	defer cancel()
 
 	req := &grpchealthv1.HealthCheckRequest{Service: ""}
 	res := &grpchealthv1.HealthCheckResponse{}
 	serviceMethod := "grpc.health.v1.Health/Check"
+	if contextPath != "" {
+		serviceMethod = fmt.Sprintf("%s/%s", contextPath, serviceMethod)
+	}
 
 	if err := client.Call(ctx, serviceMethod, req, res); err != nil {
 		log.Printf("call service failed: %v", err)
