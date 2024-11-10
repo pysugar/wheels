@@ -2,6 +2,8 @@ package main
 
 import (
 	"fmt"
+	"golang.org/x/net/http2"
+	"golang.org/x/net/http2/h2c"
 	"log"
 	"net/http"
 	"os"
@@ -21,6 +23,8 @@ import (
 )
 
 func main() {
+	fmt.Printf("GODEBUG = %s\n", os.Getenv("GODEBUG"))
+	os.Setenv("GODEBUG", "http2debug=1")
 	os.Setenv("GRPC_GO_LOG_SEVERITY_LEVEL", "DEBUG")
 	os.Setenv("GRPC_GO_LOG_VERBOSITY_LEVEL", "DEBUG")
 	os.Setenv("GRPC_TRACE", "all")
@@ -49,28 +53,32 @@ func main() {
 	service.RegisterChannelzServiceToServer(grpcServer)
 	grpcprometheus.Register(grpcServer)
 
-	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		log.Printf("**************** %s %s %s ******************\n", r.Method, r.URL.RequestURI(), r.Proto)
 		if r.ProtoMajor == 2 && strings.HasPrefix(r.Header.Get("Content-Type"), "application/grpc") {
-			defer func() {
-				log.Printf("process grpc request\n\treq headers: %v\n\tres headers: %v\n", r.Header, w.Header())
-			}()
-			log.Printf("%s %s %s\n", r.Method, r.URL.Path, r.Proto)
 			grpcServer.ServeHTTP(w, r)
-		} else if r.URL.Path == "/health" {
-			fmt.Fprintln(w, "OK")
-		} else if r.URL.Path == "/metrics" {
-			promhttp.Handler().ServeHTTP(w, r)
 		} else {
-			http.NotFound(w, r)
+			switch r.URL.Path {
+			case "/health":
+				w.WriteHeader(http.StatusOK)
+				w.Write([]byte("OK"))
+			case "/metrics":
+				promhttp.Handler().ServeHTTP(w, r)
+			default:
+				http.NotFound(w, r)
+			}
 		}
 	})
 
+	// h2cHandler := h2c.NewHandler(extensions.LoggingMiddleware(handler), &http2.Server{})
 	server := &http.Server{
-		Addr: ":8443",
+		Addr: ":8080",
+		// Handler: h2cHandler,
+		Handler: h2c.NewHandler(handler, &http2.Server{}),
 	}
 
-	log.Println("server listen on :8443")
-	if err := server.ListenAndServeTLS("server.crt", "server.key"); err != nil {
+	log.Println("server listen on :8080")
+	if err := server.ListenAndServe(); err != nil {
 		log.Fatalf("start server failure: %v", err)
 	}
 }

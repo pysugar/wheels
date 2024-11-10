@@ -43,7 +43,8 @@ var (
 )
 
 func main() {
-	serverURL, _ := url.Parse("https://127.0.0.1:8443")
+	serverURL, _ := url.Parse("http://127.0.0.1:8080")
+	// serverURL, _ := url.Parse("https://127.0.0.1:8443")
 	// serverURL, _ := url.Parse("http://127.0.0.1:50051")
 	var transport http.RoundTripper
 	if serverURL.Scheme == "https" {
@@ -71,7 +72,7 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	var wg sync.WaitGroup
-	for i := 0; i < 3; i++ {
+	for i := 0; i < 1; i++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()

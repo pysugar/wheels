@@ -9,6 +9,7 @@ import (
 
 	grpcprometheus "github.com/grpc-ecosystem/go-grpc-prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"github.com/pysugar/wheels/protocol/http/extensions"
 	"golang.org/x/net/http2"
 	"golang.org/x/net/http2/h2c"
 	"google.golang.org/grpc"
@@ -56,7 +57,7 @@ func main() {
 
 	server := &http.Server{
 		Addr:    ":8080",
-		Handler: h2c.NewHandler(mux, &http2.Server{}),
+		Handler: extensions.LoggingMiddleware(h2c.NewHandler(mux, &http2.Server{})),
 	}
 
 	log.Println("server listen on :8080")

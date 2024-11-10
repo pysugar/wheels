@@ -130,7 +130,7 @@ func (c *grpcClient) Call(ctx context.Context, serviceMethod string, req, res pr
 	}()
 
 	c.writeMu.Lock()
-	if er := c.framer.WriteData(streamId, true, http2tool.EncodeGrpcPayload(reqBytes)); er != nil {
+	if er := c.framer.WriteData(streamId, false, http2tool.EncodeGrpcPayload(reqBytes)); er != nil {
 		c.writeMu.Unlock()
 		return er
 	}
@@ -297,9 +297,6 @@ func (c *grpcClient) processPingFrame(f *http2.PingFrame) error {
 func (c *grpcClient) processGoAwayFrame(f *http2.GoAwayFrame) error {
 	log.Printf("Received GOAWAY frame: LastStreamID=%d, SteamID=%d, ErrorCode=%d, DebugData=%s", f.LastStreamID,
 		f.StreamID, f.ErrCode, f.DebugData())
-	//if active, ok := c.activeStreams.Load(f.LastStreamID); ok {
-	//	close(active.(*activeStream).doneCh)
-	//}
 	c.activeStreams.Range(func(key, value any) bool {
 		if active, ok := value.(*activeStream); ok {
 			active.grpcStatus = int(f.ErrCode)
@@ -329,17 +326,7 @@ func (c *grpcClient) encodeHpackHeaders(headers []hpack.HeaderField) []byte {
 	c.encodeMu.Lock()
 	defer c.encodeMu.Unlock()
 
-	//c.encoderBuf.Reset()
-	//for _, header := range headers {
-	//	if err := c.encoder.WriteField(header); err != nil {
-	//		log.Printf("failed to encode header field: %v", err)
-	//		continue
-	//	}
-	//	log.Printf("Send Header %s: %s\n", header.Name, header.Value)
-	//}
-	//return c.encoderBuf.Bytes()
-
-	before := c.encoderBuf.Len()
+	c.encoderBuf.Reset()
 	for _, header := range headers {
 		if err := c.encoder.WriteField(header); err != nil {
 			log.Printf("failed to encode header field: %v", err)
@@ -347,8 +334,17 @@ func (c *grpcClient) encodeHpackHeaders(headers []hpack.HeaderField) []byte {
 		}
 		log.Printf("Send Header %s: %s\n", header.Name, header.Value)
 	}
-	after := c.encoderBuf.Len()
-	return c.encoderBuf.Bytes()[before:after]
+	return c.encoderBuf.Bytes()
+	//before := c.encoderBuf.Len()
+	//for _, header := range headers {
+	//	if err := c.encoder.WriteField(header); err != nil {
+	//		log.Printf("failed to encode header field: %v", err)
+	//		continue
+	//	}
+	//	log.Printf("Send Header %s: %s\n", header.Name, header.Value)
+	//}
+	//after := c.encoderBuf.Len()
+	//return c.encoderBuf.Bytes()[before:after]
 }
 
 func dialConn(serverURL *url.URL) (conn net.Conn, err error) {
@@ -373,13 +369,6 @@ func dialConn(serverURL *url.URL) (conn net.Conn, err error) {
 		//	conn.Close()
 		//	return nil, fmt.Errorf("failed to negotiate HTTP/2 via ALPN, got %s", np)
 		//}
-
-		//log.Printf("Send HTTP/2 Client Preface: %s\n", clientPreface)
-		//if _, er := conn.Write(clientPreface); er != nil {
-		//	conn.Close()
-		//	return nil, er
-		//}
-
 	} else {
 		conn, err = net.Dial("tcp", addr)
 		if err != nil {
@@ -394,39 +383,6 @@ func dialConn(serverURL *url.URL) (conn net.Conn, err error) {
 		err = er
 	}
 	return
-	//
-	//conn, err := net.Dial("tcp", serverURL.Host)
-	//if err != nil {
-	//	log.Printf("Failed to connect: %v\n", err)
-	//	return nil, err
-	//}
-	//
-	//if serverURL.Scheme == "https" {
-	//	tlsConfig := &tls.Config{
-	//		InsecureSkipVerify: true,
-	//		NextProtos:         []string{"h2"},
-	//	}
-	//
-	//	tlsConn := tls.Client(conn, tlsConfig)
-	//	if er := tlsConn.Handshake(); er != nil {
-	//		conn.Close()
-	//		return nil, fmt.Errorf("TLS handshake failed: %w", er)
-	//	}
-	//
-	//	// 检查 ALPN 协商结果
-	//	if np := tlsConn.ConnectionState().NegotiatedProtocol; np != "h2" {
-	//		tlsConn.Close()
-	//		return nil, fmt.Errorf("failed to negotiate HTTP/2 via ALPN, got %s", np)
-	//	}
-	//	conn = tlsConn
-	//} else {
-	//	log.Printf("Send HTTP/2 Client Preface: %s\n", clientPreface)
-	//	if _, er := conn.Write(clientPreface); er != nil {
-	//		conn.Close()
-	//		return nil, er
-	//	}
-	//}
-	//return conn, nil
 }
 
 func getHostAddress(parsedURL *url.URL) string {
