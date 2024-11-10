@@ -81,11 +81,11 @@ func NewGRPCClient(serverURL *url.URL) (GRPCClient, error) {
 		log.Printf("emit: %+v", f)
 	})
 
-	//if er := framer.WriteSettings(); er != nil {
-	//	client.Close()
-	//	log.Printf("write settings failed: %v", er)
-	//	return nil, er
-	//}
+	if er := framer.WriteSettings(); er != nil {
+		client.Close()
+		log.Printf("write settings failed: %v", er)
+		return nil, er
+	}
 
 	go client.readLoop(ctx)
 	return client, nil
@@ -374,11 +374,11 @@ func dialConn(serverURL *url.URL) (net.Conn, error) {
 		//	return nil, fmt.Errorf("failed to negotiate HTTP/2 via ALPN, got %s", np)
 		//}
 
-		//log.Printf("Send HTTP/2 Client Preface: %s\n", clientPreface)
-		//if _, er := conn.Write(clientPreface); er != nil {
-		//	conn.Close()
-		//	return nil, er
-		//}
+		log.Printf("Send HTTP/2 Client Preface: %s\n", clientPreface)
+		if _, er := conn.Write(clientPreface); er != nil {
+			conn.Close()
+			return nil, er
+		}
 
 		return conn, nil
 	} else {
