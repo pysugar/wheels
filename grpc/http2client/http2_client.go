@@ -80,6 +80,12 @@ func NewGRPCClient(serverURL *url.URL) (GRPCClient, error) {
 	}
 
 	go client.readLoop(ctx)
+	go func() {
+		if tlsConn, ok := conn.(*tls.Conn); ok {
+			tlsConn.Close()
+		}
+
+	}()
 	return client, nil
 }
 
@@ -108,10 +114,6 @@ func (c *grpcClient) Call(ctx context.Context, serviceMethod string, req, res pr
 		c.writeMu.Unlock()
 		return er
 	}
-	if er := c.framer.WriteData(streamId, true, http2tool.EncodeGrpcPayload(reqBytes)); er != nil {
-		c.writeMu.Unlock()
-		return er
-	}
 	c.writeMu.Unlock()
 
 	active := &activeStream{
@@ -124,6 +126,13 @@ func (c *grpcClient) Call(ctx context.Context, serviceMethod string, req, res pr
 	defer func() {
 		c.activeStreams.Delete(streamId)
 	}()
+
+	c.writeMu.Lock()
+	if er := c.framer.WriteData(streamId, true, http2tool.EncodeGrpcPayload(reqBytes)); er != nil {
+		c.writeMu.Unlock()
+		return er
+	}
+	c.writeMu.Unlock()
 
 	select {
 	case <-active.doneCh:
@@ -339,65 +348,6 @@ func (c *grpcClient) encodeHpackHeaders(headers []hpack.HeaderField) []byte {
 	after := c.encoderBuf.Len()
 	return c.encoderBuf.Bytes()[before:after]
 }
-
-//func encodeHpackHeaders(headers []hpack.HeaderField) []byte {
-//	var headersBuffer bytes.Buffer
-//	encoder := hpack.NewEncoder(&headersBuffer)
-//	for _, header := range headers {
-//		err := encoder.WriteField(hpack.HeaderField{
-//			Name:  header.Name,
-//			Value: header.Value,
-//		})
-//		if err != nil {
-//			log.Printf("failed to encode header field: %v", err)
-//			continue
-//		}
-//		log.Printf("Send Header %s: %s\n", header.Name, header.Value)
-//	}
-//	return headersBuffer.Bytes()
-//}
-
-//func decodeHpackHeaders(headerPayload []byte) []hpack.HeaderField {
-//	headers := make([]hpack.HeaderField, 0)
-//
-//	buf := bytes.NewBuffer(headerPayload)
-//	decoder := hpack.NewDecoder(4096, func(f hpack.HeaderField) {
-//		headers = append(headers, f)
-//	})
-//	for buf.Len() > 0 {
-//		if n, err := decoder.Write(buf.Next(buf.Len())); err != nil {
-//			if err == io.EOF {
-//				break
-//			}
-//			log.Printf("failed to decode header field: %v, n = %d\n", err, n)
-//			continue
-//		}
-//	}
-//	return headers
-//}
-
-//func newFramer(serverURL *url.URL) (*http2.Framer, error) {
-//	conn, err := net.Dial("tcp", serverURL.Host)
-//	if err != nil {
-//		log.Printf("Failed to connect: %v\n", err)
-//		return nil, err
-//	}
-//
-//	if serverURL.Scheme == "https" {
-//		tlsConfig := &tls.Config{
-//			InsecureSkipVerify: true,
-//			NextProtos:         []string{"h2"},
-//		}
-//		conn = tls.Client(conn, tlsConfig)
-//	} else {
-//		clientPreface := []byte("PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n")
-//		log.Printf("Send HTTP/2 Client Preface: %s\n", clientPreface)
-//		if _, er := conn.Write(clientPreface); er != nil {
-//			return nil, er
-//		}
-//	}
-//	return http2.NewFramer(conn, conn), nil
-//}
 
 func openConn(serverURL *url.URL) (net.Conn, error) {
 	conn, err := net.Dial("tcp", serverURL.Host)
