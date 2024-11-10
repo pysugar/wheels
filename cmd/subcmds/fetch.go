@@ -2,10 +2,12 @@ package subcmds
 
 import (
 	"bufio"
+	"context"
 	"crypto/tls"
 	"encoding/base64"
 	"encoding/binary"
 	"fmt"
+	"github.com/pysugar/wheels/grpc/http2client"
 	"io"
 	"log"
 	"net"
@@ -26,6 +28,10 @@ type (
 		userAgent string
 		method    string
 		grpc      bool
+	}
+
+	grpcFetcher struct {
+		client http2client.GRPCClient
 	}
 )
 
@@ -51,6 +57,23 @@ fetch http2 response from url: netool fetch https://www.google.com
 			targetURL, err := url.Parse(args[0])
 			if err != nil {
 				log.Printf("invalid url %s\n", args[0])
+				return
+			}
+
+			if isGRPC {
+				grpcClient, err := http2client.NewGRPCClient(targetURL)
+				if err != nil {
+					log.Printf("error creating grpc client: %s\n", err)
+					return
+				}
+
+				req := &pb.HealthCheckRequest{}
+				res := &pb.HealthCheckResponse{}
+				fullMethod := "grpc.health.v1.Health/Check"
+				if er := grpcClient.Call(context.Background(), fullMethod, req, res); er != nil {
+					log.Printf("Call grpc %s error: %v\n", fullMethod, err)
+				}
+				fmt.Printf("grpc health check: %+v\n", res)
 				return
 			}
 
