@@ -26,7 +26,7 @@ const (
 )
 
 type (
-	activeStream struct {
+	clientStream struct {
 		streamId        uint32
 		activeAt        time.Time
 		doneCh          chan struct{}
@@ -41,7 +41,7 @@ type (
 		serverURL     *url.URL
 		conn          net.Conn
 		framer        *http2.Framer
-		activeStreams sync.Map // streamID -> activeStream
+		clientStreams sync.Map // streamID -> activeStream
 		streamIdGen   uint32
 		ctx           context.Context
 		cancel        context.CancelFunc
@@ -77,6 +77,7 @@ func NewGRPCClient(serverURL *url.URL) (GRPCClient, error) {
 	client := &grpcClient{
 		serverURL:     serverURL,
 		framer:        framer,
+		conn:          conn,
 		ctx:           ctx,
 		cancel:        cancel,
 		settingsAcked: settingsAcked,
@@ -135,15 +136,15 @@ func (c *grpcClient) Call(ctx context.Context, serviceMethod string, req, res pr
 	}
 	c.writeMu.Unlock()
 
-	active := &activeStream{
+	cs := &clientStream{
 		streamId:   streamId,
 		activeAt:   time.Now(),
 		doneCh:     make(chan struct{}),
 		grpcStatus: -1,
 	}
-	c.activeStreams.Store(streamId, active)
+	c.clientStreams.Store(streamId, cs)
 	defer func() {
-		c.activeStreams.Delete(streamId)
+		c.clientStreams.Delete(streamId)
 	}()
 
 	c.writeMu.Lock()
@@ -154,11 +155,11 @@ func (c *grpcClient) Call(ctx context.Context, serviceMethod string, req, res pr
 	c.writeMu.Unlock()
 
 	select {
-	case <-active.doneCh:
-		if active.grpcStatus != 0 {
-			return fmt.Errorf("[%d] grpc error: %s", active.grpcStatus, active.grpcMessage)
+	case <-cs.doneCh:
+		if cs.grpcStatus != 0 {
+			return fmt.Errorf("[%d] grpc error: %s", cs.grpcStatus, cs.grpcMessage)
 		}
-		if er := http2tool.DecodeGrpcFrameWithDecompress(active.payload, active.compressionAlgo, res); er != nil {
+		if er := http2tool.DecodeGrpcFrameWithDecompress(cs.payload, cs.compressionAlgo, res); er != nil {
 			return fmt.Errorf("failed to decode response: %w", er)
 		}
 		return nil
@@ -227,15 +228,15 @@ func (c *grpcClient) readFrame(ctx context.Context) error {
 }
 
 func (c *grpcClient) processDataFrame(f *http2.DataFrame) error {
-	if v, loaded := c.activeStreams.Load(f.StreamID); loaded {
-		if active, ok := v.(*activeStream); ok {
-			active.mu.Lock()
-			active.payload = append(active.payload, f.Data()...)
-			active.mu.Unlock()
+	if v, loaded := c.clientStreams.Load(f.StreamID); loaded {
+		if cs, ok := v.(*clientStream); ok {
+			cs.mu.Lock()
+			cs.payload = append(cs.payload, f.Data()...)
+			cs.mu.Unlock()
 
 			if f.StreamEnded() {
-				c.activeStreams.Delete(f.StreamID)
-				close(active.doneCh)
+				c.clientStreams.Delete(f.StreamID)
+				close(cs.doneCh)
 			}
 		}
 	}
@@ -243,8 +244,8 @@ func (c *grpcClient) processDataFrame(f *http2.DataFrame) error {
 }
 
 func (c *grpcClient) processHeaderFrame(f *http2.HeadersFrame) error {
-	if v, loaded := c.activeStreams.Load(f.StreamID); loaded {
-		if active, ok := v.(*activeStream); ok {
+	if v, loaded := c.clientStreams.Load(f.StreamID); loaded {
+		if cs, ok := v.(*clientStream); ok {
 			c.decodeMu.Lock()
 			headers, err := c.decoder.DecodeFull(f.HeaderBlockFragment())
 			c.decodeMu.Unlock()
@@ -257,19 +258,19 @@ func (c *grpcClient) processHeaderFrame(f *http2.HeadersFrame) error {
 				log.Printf("received header (%s: %s)", hf.Name, hf.Value)
 				if hf.Name == "grpc-status" {
 					if statusCode, er := strconv.Atoi(hf.Value); er == nil {
-						active.grpcStatus = statusCode
+						cs.grpcStatus = statusCode
 					} else {
 						log.Printf("[ERROR] failed to parse grpc status: %v", hf.Value)
 					}
 				} else if hf.Name == "grpc-message" {
-					active.grpcMessage = hf.Value
+					cs.grpcMessage = hf.Value
 				} else if hf.Name == "grpc-encoding" {
-					active.compressionAlgo = hf.Value
+					cs.compressionAlgo = hf.Value
 				}
 			}
 			if f.StreamEnded() {
-				c.activeStreams.Delete(f.StreamID)
-				close(active.doneCh)
+				c.clientStreams.Delete(f.StreamID)
+				close(cs.doneCh)
 			}
 		}
 	}
@@ -277,12 +278,12 @@ func (c *grpcClient) processHeaderFrame(f *http2.HeadersFrame) error {
 }
 
 func (c *grpcClient) processRSTStreamFrame(f *http2.RSTStreamFrame) error {
-	if v, loaded := c.activeStreams.Load(f.StreamID); loaded {
-		if active, ok := v.(*activeStream); ok {
-			active.grpcStatus = int(f.ErrCode)
-			active.grpcMessage = "Stream reset by server"
-			c.activeStreams.Delete(f.StreamID)
-			close(active.doneCh)
+	if v, loaded := c.clientStreams.Load(f.StreamID); loaded {
+		if cs, ok := v.(*clientStream); ok {
+			cs.grpcStatus = int(f.ErrCode)
+			cs.grpcMessage = "Stream reset by server"
+			c.clientStreams.Delete(f.StreamID)
+			close(cs.doneCh)
 		}
 	}
 	return nil
@@ -320,12 +321,12 @@ func (c *grpcClient) processPingFrame(f *http2.PingFrame) error {
 func (c *grpcClient) processGoAwayFrame(f *http2.GoAwayFrame) error {
 	log.Printf("Received GOAWAY frame: LastStreamID=%d, SteamID=%d, ErrorCode=%d, DebugData=%s", f.LastStreamID,
 		f.StreamID, f.ErrCode, f.DebugData())
-	c.activeStreams.Range(func(key, value any) bool {
-		if active, ok := value.(*activeStream); ok {
-			active.grpcStatus = int(f.ErrCode)
-			active.grpcMessage = "stream go away"
-			c.activeStreams.Delete(f.StreamID)
-			close(active.doneCh)
+	c.clientStreams.Range(func(key, value any) bool {
+		if cs, ok := value.(*clientStream); ok {
+			cs.grpcStatus = int(f.ErrCode)
+			cs.grpcMessage = "stream go away"
+			c.clientStreams.Delete(cs.streamId)
+			close(cs.doneCh)
 		}
 		return true
 	})
