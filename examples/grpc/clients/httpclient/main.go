@@ -43,8 +43,8 @@ var (
 )
 
 func main() {
-	// serverURL, _ := url.Parse("https://127.0.0.1:8443")
-	serverURL, _ := url.Parse("http://127.0.0.1:50051")
+	serverURL, _ := url.Parse("https://127.0.0.1:8443")
+	// serverURL, _ := url.Parse("http://127.0.0.1:50051")
 	var transport http.RoundTripper
 	if serverURL.Scheme == "https" {
 		tlsConfig := &tls.Config{

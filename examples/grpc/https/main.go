@@ -9,6 +9,7 @@ import (
 
 	grpcprometheus "github.com/grpc-ecosystem/go-grpc-prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"github.com/pysugar/wheels/grpc/interceptors"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/channelz/service"
 	"google.golang.org/grpc/health"
@@ -26,12 +27,11 @@ func main() {
 		Timeout:               20 * time.Second,
 	}
 
-	grpcServer := grpc.NewServer(
+	var grpcServer = grpc.NewServer(
 		grpc.KeepaliveParams(kaParams),
 		grpc.StreamInterceptor(grpcprometheus.StreamServerInterceptor),
 		grpc.ChainUnaryInterceptor(grpcprometheus.UnaryServerInterceptor, interceptors.LoggingUnaryServerInterceptor),
 	)
-
 	healthServer := health.NewServer()
 
 	grphealthv1.RegisterHealthServer(grpcServer, healthServer)

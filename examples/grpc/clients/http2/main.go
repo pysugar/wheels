@@ -13,8 +13,8 @@ import (
 )
 
 func main() {
-	// serverURL, _ := url.Parse("https://127.0.0.1:8443")
-	serverURL, _ := url.Parse("http://127.0.0.1:50051")
+	serverURL, _ := url.Parse("https://127.0.0.1:8443")
+	// serverURL, _ := url.Parse("http://127.0.0.1:50051")
 
 	client, err := http2client.NewGRPCClient(serverURL)
 	if err != nil {
@@ -29,7 +29,7 @@ func main() {
 	//}
 
 	var wg sync.WaitGroup
-	for i := 0; i < 100; i++ {
+	for i := 0; i < 1; i++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()

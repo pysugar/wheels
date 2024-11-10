@@ -20,6 +20,10 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
+const (
+	ClientPreface = "PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n"
+)
+
 type (
 	activeStream struct {
 		streamId        uint32
@@ -54,8 +58,12 @@ type (
 	}
 )
 
+var (
+	clientPreface = []byte(ClientPreface)
+)
+
 func NewGRPCClient(serverURL *url.URL) (GRPCClient, error) {
-	conn, err := openConn(serverURL)
+	conn, err := dialConn(serverURL)
 	if err != nil {
 		return nil, err
 	}
@@ -73,19 +81,13 @@ func NewGRPCClient(serverURL *url.URL) (GRPCClient, error) {
 		log.Printf("emit: %+v", f)
 	})
 
-	if er := framer.WriteSettings(); er != nil {
-		client.Close()
-		log.Printf("write settings failed: %v", er)
-		return nil, er
-	}
+	//if er := framer.WriteSettings(); er != nil {
+	//	client.Close()
+	//	log.Printf("write settings failed: %v", er)
+	//	return nil, er
+	//}
 
 	go client.readLoop(ctx)
-	go func() {
-		if tlsConn, ok := conn.(*tls.Conn); ok {
-			tlsConn.Close()
-		}
-
-	}()
 	return client, nil
 }
 
@@ -349,25 +351,94 @@ func (c *grpcClient) encodeHpackHeaders(headers []hpack.HeaderField) []byte {
 	return c.encoderBuf.Bytes()[before:after]
 }
 
-func openConn(serverURL *url.URL) (net.Conn, error) {
-	conn, err := net.Dial("tcp", serverURL.Host)
-	if err != nil {
-		log.Printf("Failed to connect: %v\n", err)
-		return nil, err
-	}
-
+func dialConn(serverURL *url.URL) (net.Conn, error) {
+	addr := getHostAddress(serverURL)
 	if serverURL.Scheme == "https" {
 		tlsConfig := &tls.Config{
-			InsecureSkipVerify: true,
+			InsecureSkipVerify: true, // NOTE: For testing only. Do not use in production.
 			NextProtos:         []string{"h2"},
 		}
-		conn = tls.Client(conn, tlsConfig)
+		conn, err := tls.Dial("tcp", addr, tlsConfig)
+		if err != nil {
+			log.Printf("dial conn err: %v\n", err)
+			return nil, err
+		}
+
+		//if er := conn.Handshake(); er != nil {
+		//	conn.Close()
+		//	return nil, fmt.Errorf("TLS handshake failed: %w", er)
+		//}
+
+		//if np := conn.ConnectionState().NegotiatedProtocol; np != "h2" {
+		//	conn.Close()
+		//	return nil, fmt.Errorf("failed to negotiate HTTP/2 via ALPN, got %s", np)
+		//}
+
+		//log.Printf("Send HTTP/2 Client Preface: %s\n", clientPreface)
+		//if _, er := conn.Write(clientPreface); er != nil {
+		//	conn.Close()
+		//	return nil, er
+		//}
+
+		return conn, nil
 	} else {
-		clientPreface := []byte("PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n")
+		conn, err := net.Dial("tcp", addr)
+		if err != nil {
+			log.Printf("dial conn err: %v\n", err)
+			return nil, err
+		}
+
 		log.Printf("Send HTTP/2 Client Preface: %s\n", clientPreface)
 		if _, er := conn.Write(clientPreface); er != nil {
+			conn.Close()
 			return nil, er
 		}
+		return conn, nil
 	}
-	return conn, nil
+	//
+	//conn, err := net.Dial("tcp", serverURL.Host)
+	//if err != nil {
+	//	log.Printf("Failed to connect: %v\n", err)
+	//	return nil, err
+	//}
+	//
+	//if serverURL.Scheme == "https" {
+	//	tlsConfig := &tls.Config{
+	//		InsecureSkipVerify: true,
+	//		NextProtos:         []string{"h2"},
+	//	}
+	//
+	//	tlsConn := tls.Client(conn, tlsConfig)
+	//	if er := tlsConn.Handshake(); er != nil {
+	//		conn.Close()
+	//		return nil, fmt.Errorf("TLS handshake failed: %w", er)
+	//	}
+	//
+	//	// 检查 ALPN 协商结果
+	//	if np := tlsConn.ConnectionState().NegotiatedProtocol; np != "h2" {
+	//		tlsConn.Close()
+	//		return nil, fmt.Errorf("failed to negotiate HTTP/2 via ALPN, got %s", np)
+	//	}
+	//	conn = tlsConn
+	//} else {
+	//	log.Printf("Send HTTP/2 Client Preface: %s\n", clientPreface)
+	//	if _, er := conn.Write(clientPreface); er != nil {
+	//		conn.Close()
+	//		return nil, er
+	//	}
+	//}
+	//return conn, nil
+}
+
+func getHostAddress(parsedURL *url.URL) string {
+	host := parsedURL.Host
+	if parsedURL.Port() == "" {
+		switch parsedURL.Scheme {
+		case "https":
+			host += ":443"
+		case "http":
+			host += ":80"
+		}
+	}
+	return host
 }

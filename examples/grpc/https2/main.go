@@ -9,7 +9,7 @@ import (
 
 	grpcprometheus "github.com/grpc-ecosystem/go-grpc-prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
-	grpcextensions "github.com/pysugar/wheels/grpc/extensions"
+	"github.com/pysugar/wheels/grpc/interceptors"
 	httpextensions "github.com/pysugar/wheels/protocol/http/extensions"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/channelz/service"
@@ -31,7 +31,7 @@ func main() {
 	grpcServer := grpc.NewServer(
 		grpc.KeepaliveParams(kaParams),
 		grpc.StreamInterceptor(grpcprometheus.StreamServerInterceptor),
-		grpc.ChainUnaryInterceptor(grpcprometheus.UnaryServerInterceptor, grpcextensions.LoggingUnaryServerInterceptor),
+		grpc.ChainUnaryInterceptor(grpcprometheus.UnaryServerInterceptor, interceptors.LoggingUnaryServerInterceptor),
 	)
 
 	healthServer := health.NewServer()
@@ -64,6 +64,7 @@ func main() {
 
 func grpcMiddleware(grpcServer *grpc.Server, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		log.Printf("* Received HTTP Request: %s\n", r.URL)
 		if r.ProtoMajor == 2 && strings.HasPrefix(r.Header.Get("Content-Type"), "application/grpc") {
 			grpcServer.ServeHTTP(w, r)
 		} else {
