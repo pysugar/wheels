@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"flag"
 	"fmt"
 	"log"
 	"net/url"
@@ -12,8 +13,20 @@ import (
 	grpchealthv1 "google.golang.org/grpc/health/grpc_health_v1"
 )
 
+var (
+	rawURL      = flag.String("url", "http://127.0.0.1:8080", "Server URL")
+	concurrency = flag.Int("concurrency", 1, "concurrency number")
+)
+
 func main() {
-	serverURL, _ := url.Parse("http://127.0.0.1:8080")
+	flag.Parse()
+
+	serverURL, err := url.Parse(*rawURL)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	// serverURL, _ := url.Parse("http://127.0.0.1:8080")
 	// serverURL, _ := url.Parse("https://127.0.0.1:8443")
 	// serverURL, _ := url.Parse("http://127.0.0.1:50051")
 
@@ -30,7 +43,7 @@ func main() {
 	//}
 
 	var wg sync.WaitGroup
-	for i := 0; i < 1; i++ {
+	for i := 0; i < *concurrency; i++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
@@ -39,7 +52,8 @@ func main() {
 	}
 	wg.Wait()
 
-	time.Sleep(10 * time.Second)
+	time.Sleep(1 * time.Second)
+	fmt.Println("Done")
 }
 
 func callHealthCheck(ctx context.Context, client http2client.GRPCClient) {
@@ -48,7 +62,7 @@ func callHealthCheck(ctx context.Context, client http2client.GRPCClient) {
 
 	req := &grpchealthv1.HealthCheckRequest{Service: ""}
 	res := &grpchealthv1.HealthCheckResponse{}
-	serviceMethod := "/grpc.health.v1.Health/Check"
+	serviceMethod := "grpc.health.v1.Health/Check"
 
 	if err := client.Call(ctx, serviceMethod, req, res); err != nil {
 		log.Printf("call service failed: %v", err)

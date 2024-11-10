@@ -72,12 +72,14 @@ func NewGRPCClient(serverURL *url.URL) (GRPCClient, error) {
 
 	framer := http2.NewFramer(conn, conn)
 	ctx, cancel := context.WithCancel(context.Background())
+
+	settingsAcked := make(chan struct{})
 	client := &grpcClient{
 		serverURL:     serverURL,
 		framer:        framer,
 		ctx:           ctx,
 		cancel:        cancel,
-		settingsAcked: make(chan struct{}),
+		settingsAcked: settingsAcked,
 	}
 	client.encoder = hpack.NewEncoder(&client.encoderBuf)
 	client.decoder = hpack.NewDecoder(4096, func(f hpack.HeaderField) {
@@ -93,8 +95,15 @@ func NewGRPCClient(serverURL *url.URL) (GRPCClient, error) {
 		return nil, er
 	}
 	log.Printf("Client Write Settings")
-	time.Sleep(2 * time.Second)
 	go client.readLoop(ctx)
+
+	select {
+	case _, ok := <-settingsAcked:
+		log.Printf("acked server settings done, ack channel available: %v", ok)
+	case <-time.After(time.Second * 5):
+
+		return nil, fmt.Errorf("timeout waiting for settings ack")
+	}
 	return client, nil
 }
 
@@ -106,12 +115,6 @@ func (c *grpcClient) Close() {
 }
 
 func (c *grpcClient) Call(ctx context.Context, serviceMethod string, req, res proto.Message) error {
-	select {
-	case <-c.settingsAcked:
-		// 继续发送请求
-	case <-time.After(time.Second * 5):
-		return fmt.Errorf("timeout waiting for settings ack")
-	}
 
 	reqBytes, err := proto.Marshal(req)
 	if err != nil {
@@ -144,7 +147,7 @@ func (c *grpcClient) Call(ctx context.Context, serviceMethod string, req, res pr
 	}()
 
 	c.writeMu.Lock()
-	if er := c.framer.WriteData(streamId, false, http2tool.EncodeGrpcPayload(reqBytes)); er != nil {
+	if er := c.framer.WriteData(streamId, true, http2tool.EncodeGrpcPayload(reqBytes)); er != nil {
 		c.writeMu.Unlock()
 		return er
 	}
@@ -382,16 +385,6 @@ func dialConn(serverURL *url.URL) (conn net.Conn, err error) {
 			log.Printf("dial conn err: %v\n", err)
 			return
 		}
-
-		//if er := conn.Handshake(); er != nil {
-		//	conn.Close()
-		//	return nil, fmt.Errorf("TLS handshake failed: %w", er)
-		//}
-
-		//if np := conn.ConnectionState().NegotiatedProtocol; np != "h2" {
-		//	conn.Close()
-		//	return nil, fmt.Errorf("failed to negotiate HTTP/2 via ALPN, got %s", np)
-		//}
 	} else {
 		conn, err = net.Dial("tcp", addr)
 		if err != nil {
@@ -400,7 +393,7 @@ func dialConn(serverURL *url.URL) (conn net.Conn, err error) {
 		}
 	}
 
-	log.Printf("Send HTTP/2 Client Preface: %s\n", clientPreface)
+	log.Printf("[%T] Send HTTP/2 Client Preface: %s\n", conn, clientPreface)
 	if _, er := conn.Write(clientPreface); er != nil {
 		conn.Close()
 		err = er

@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"github.com/pysugar/wheels/protocol/http/extensions"
 	"golang.org/x/net/http2"
 	"golang.org/x/net/http2/h2c"
 	"log"
@@ -70,11 +71,11 @@ func main() {
 		}
 	})
 
-	// h2cHandler := h2c.NewHandler(extensions.LoggingMiddleware(handler), &http2.Server{})
+	h2cHandler := h2c.NewHandler(extensions.LoggingMiddleware(handler), &http2.Server{})
 	server := &http.Server{
-		Addr: ":8080",
-		// Handler: h2cHandler,
-		Handler: h2c.NewHandler(handler, &http2.Server{}),
+		Addr:    ":8080",
+		Handler: h2cHandler,
+		// Handler: h2c.NewHandler(handler, &http2.Server{}),
 	}
 
 	log.Println("server listen on :8080")
