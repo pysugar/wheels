@@ -44,6 +44,8 @@ var (
 fetch http2 response from url
 
 fetch http2 response from url: netool fetch https://www.google.com
+call grpc service: netool fetch --grpc https://localhost:8443/grpc.health.v1.Health/Check
+call grpc via context path: netool fetch --grpc http://localhost:8080/grpc/grpc.health.v1.Health/Check
 `,
 		Run: func(cmd *cobra.Command, args []string) {
 			if len(args) < 1 {
@@ -69,7 +71,7 @@ fetch http2 response from url: netool fetch https://www.google.com
 
 				req := &pb.HealthCheckRequest{}
 				res := &pb.HealthCheckResponse{}
-				fullMethod := "grpc.health.v1.Health/Check"
+				fullMethod := targetURL.RequestURI()
 				if er := grpcClient.Call(context.Background(), fullMethod, req, res); er != nil {
 					log.Printf("Call grpc %s error: %v\n", fullMethod, err)
 				}

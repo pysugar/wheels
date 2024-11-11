@@ -2,7 +2,7 @@ package main
 
 import (
 	"fmt"
-	"github.com/pysugar/wheels/protocol/http/extensions"
+	"github.com/pysugar/wheels/http/extensions"
 	"golang.org/x/net/http2"
 	"golang.org/x/net/http2/h2c"
 	"log"

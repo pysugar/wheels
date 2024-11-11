@@ -10,7 +10,7 @@ import (
 	grpcprometheus "github.com/grpc-ecosystem/go-grpc-prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/pysugar/wheels/grpc/interceptors"
-	httpextensions "github.com/pysugar/wheels/protocol/http/extensions"
+	httpextensions "github.com/pysugar/wheels/http/extensions"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/channelz/service"
 	"google.golang.org/grpc/health"
