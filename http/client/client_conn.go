@@ -8,6 +8,7 @@ import (
 	"io"
 	"log"
 	"net"
+	"net/http"
 	"net/url"
 	"strconv"
 	"sync"
@@ -92,6 +93,11 @@ func newClientConn(serverURL *url.URL) (*clientConn, error) {
 	go cc.readLoop(ctx)
 
 	return cc, nil
+}
+
+func (c *clientConn) do(ctx context.Context, r *http.Request) (*http.Response, error) {
+
+	return nil, nil
 }
 
 func (c *clientConn) call(ctx context.Context, serverURL *url.URL, reqBytes []byte) ([]byte, error) {
@@ -348,6 +354,7 @@ func http2Headers(serverURL *url.URL) []hpack.HeaderField {
 		{Name: ":scheme", Value: serverURL.Scheme},
 		{Name: ":authority", Value: serverURL.Host},
 		{Name: ":path", Value: serverURL.RequestURI()},
+		// todo remove grpc specify headers
 		{Name: "content-type", Value: "application/grpc"},
 		{Name: "te", Value: "trailers"},
 		{Name: "grpc-encoding", Value: "identity"},
