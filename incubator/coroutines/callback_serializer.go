@@ -25,7 +25,9 @@ func (cs *CallbackSerializer) loop(ctx context.Context) {
 	for {
 		select {
 		case f := <-cs.ch:
-			f()
+			if f != nil {
+				f()
+			}
 		case <-ctx.Done():
 			return
 		}

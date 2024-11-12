@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -32,12 +33,13 @@ type (
 	clientStream struct {
 		streamId        uint32
 		activeAt        time.Time
-		doneCh          chan struct{}
-		grpcStatus      int
-		grpcMessage     string
-		compressionAlgo string
-		payload         []byte
+		statusCode      int
+		responseHeaders http.Header
+		payload         bytes.Buffer
+		trailers        http.Header
 		mu              sync.Mutex
+		doneCh          chan struct{}
+		doneOnce        sync.Once
 	}
 
 	clientConn struct {
@@ -52,8 +54,16 @@ type (
 		decoder       *hpack.Decoder
 		encoderBuf    bytes.Buffer // encoder buffer
 		closed        bool
+		mu            sync.Mutex
+		settingsAcked chan struct{}
 	}
 )
+
+func (cs *clientStream) done() {
+	cs.doneOnce.Do(func() {
+		close(cs.doneCh)
+	})
+}
 
 func newClientConn(serverURL *url.URL) (*clientConn, error) {
 	conn, err := dialConn(serverURL)
@@ -70,92 +80,129 @@ func newClientConn(serverURL *url.URL) (*clientConn, error) {
 	framer := http2.NewFramer(conn, conn)
 	ctx, cancel := context.WithCancel(context.Background())
 	cc := &clientConn{
-		serverURL:  serverURL,
-		conn:       conn,
-		framer:     framer,
-		serializer: concurrent.NewCallbackSerializer(ctx),
-		cancel:     cancel,
+		serverURL:     serverURL,
+		conn:          conn,
+		framer:        framer,
+		serializer:    concurrent.NewCallbackSerializer(ctx),
+		cancel:        cancel,
+		settingsAcked: make(chan struct{}),
 	}
 	cc.encoder = hpack.NewEncoder(&cc.encoderBuf)
-	cc.decoder = hpack.NewDecoder(4096, func(f hpack.HeaderField) {
-		log.Printf("emit: %+v", f)
-	})
+	cc.decoder = hpack.NewDecoder(4096, nil)
 
 	if er := framer.WriteSettings(http2.Setting{
 		ID:  http2.SettingMaxConcurrentStreams,
 		Val: 1024,
 	}); er != nil {
 		cc.close()
-		log.Printf("[clientconn] write settings failed: %v", er)
+		log.Printf("[clientConn] write settings failed: %v", er)
 		return nil, er
 	}
-	log.Printf("[clientconn] client write settings")
+	log.Printf("[clientConn] client write settings")
 	go cc.readLoop(ctx)
 
+	select {
+	case <-cc.settingsAcked:
+		log.Printf("[clientConn] Settings acknowledged by server")
+	case <-time.After(5 * time.Second):
+		cc.close()
+		return nil, fmt.Errorf("timeout waiting for settings ack")
+	}
 	return cc, nil
 }
 
-func (c *clientConn) do(ctx context.Context, r *http.Request) (*http.Response, error) {
-
-	return nil, nil
-}
-
-func (c *clientConn) call(ctx context.Context, serverURL *url.URL, reqBytes []byte) ([]byte, error) {
-	headers := http2Headers(serverURL)
-	errCh := make(chan error)
-	streamIdCh := make(chan uint32)
-	c.serializer.TrySchedule(func(ctx context.Context) {
-		if ctx.Err() != nil {
-			return
-		}
-		streamId := atomic.AddUint32(&c.streamIdGen, 2) - 1
-		log.Printf("Generated stream ID: %d\n", streamId)
-		err := c.framer.WriteHeaders(http2.HeadersFrameParam{
-			StreamID:      streamId,
-			BlockFragment: c.encodeHpackHeaders(headers),
-			EndHeaders:    true,
-		})
-		if err != nil {
-			errCh <- err
-		} else {
-			streamIdCh <- streamId
-		}
-	})
-
-	var streamId uint32
-	select {
-	case err := <-errCh:
-		return nil, err
-	case v := <-streamIdCh:
-		streamId = v
+func (c *clientConn) do(ctx context.Context, req *http.Request) (res *http.Response, err error) {
+	if er := validateRequest(req); er != nil {
+		return nil, er
 	}
 
-	cs := &clientStream{
-		streamId:   streamId,
-		activeAt:   time.Now(),
-		doneCh:     make(chan struct{}),
-		grpcStatus: -1,
-	}
-	c.clientStreams.Store(streamId, cs)
-	defer func() {
-		c.clientStreams.Delete(streamId)
-	}()
-
-	errCh = make(chan error)
-	c.serializer.TrySchedule(func(ctx context.Context) {
-		err := c.framer.WriteData(streamId, true, reqBytes)
-		errCh <- err
-	})
-	err := <-errCh
+	headerFields, err := c.createHeaderFields(req)
 	if err != nil {
 		return nil, err
 	}
 
+	clientStreamCh := make(chan struct {
+		cs  *clientStream
+		err error
+	})
+	c.serializer.TrySchedule(func(ctx context.Context) {
+		if ctx.Err() != nil {
+			return
+		}
+
+		streamId := atomic.AddUint32(&c.streamIdGen, 2) - 1
+		headersBuf := c.encodeHpackHeaders(headerFields)
+		er := c.framer.WriteHeaders(http2.HeadersFrameParam{
+			StreamID:      streamId,
+			BlockFragment: headersBuf,
+			EndHeaders:    true,
+			EndStream:     req.Body == nil,
+		})
+
+		if er != nil {
+			clientStreamCh <- struct {
+				cs  *clientStream
+				err error
+			}{nil, err}
+		} else {
+			cs := &clientStream{
+				streamId:        streamId,
+				activeAt:        time.Now(),
+				doneCh:          make(chan struct{}),
+				responseHeaders: make(http.Header),
+				trailers:        make(http.Header),
+			}
+			c.clientStreams.Store(streamId, cs)
+			clientStreamCh <- struct {
+				cs  *clientStream
+				err error
+			}{cs, nil}
+		}
+	})
+
+	var cs *clientStream
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	case ret := <-clientStreamCh:
+		if ret.err != nil {
+			return nil, ret.err
+		}
+		cs = ret.cs
+		defer c.clientStreams.Delete(ret.cs.streamId)
+	}
+
+	if req.Body != nil {
+		reqBytes, er := io.ReadAll(req.Body)
+		if er != nil {
+			return nil, er
+		}
+		errCh := make(chan error)
+		c.serializer.TrySchedule(func(ctx context.Context) {
+			errCh <- c.framer.WriteData(cs.streamId, true, reqBytes)
+		})
+		err = <-errCh
+
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	select {
 	case <-cs.doneCh:
-		log.Printf("[clientconn] grpc-status: %d", cs.grpcStatus)
-		log.Printf("[clientconn] grpc-message: %s", cs.grpcMessage)
-		return cs.payload, nil
+		resp := &http.Response{
+			StatusCode:    cs.statusCode,
+			Status:        fmt.Sprintf("%d %s", cs.statusCode, http.StatusText(cs.statusCode)),
+			Proto:         "HTTP/2.0",
+			ProtoMajor:    2,
+			ProtoMinor:    0,
+			Header:        cs.responseHeaders,
+			Trailer:       cs.trailers,
+			Body:          io.NopCloser(&cs.payload),
+			ContentLength: int64(cs.payload.Len()),
+			Request:       req,
+		}
+		return resp, nil
 	case <-ctx.Done():
 		return nil, ctx.Err()
 	}
@@ -178,10 +225,17 @@ func (c *clientConn) readLoop(ctx context.Context) {
 	}
 }
 
-func (cc *clientConn) close() {
-	cc.cancel()
-	if cc.conn != nil {
-		cc.conn.Close()
+func (c *clientConn) close() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.closed {
+		return
+	}
+
+	c.closed = true
+	c.cancel()
+	if c.conn != nil {
+		c.conn.Close()
 	}
 }
 
@@ -196,7 +250,7 @@ func (c *clientConn) readFrame(ctx context.Context) error {
 		return err
 	}
 
-	log.Printf("[stream-%03d] Received %s frame: %+v", frame.Header().StreamID, frame.Header().Type, frame)
+	log.Printf("[stream-%03d] Received %s Frame: %+v", frame.Header().StreamID, frame.Header().Type, frame)
 
 	switch f := frame.(type) {
 	case *http2.DataFrame: // 0
@@ -225,12 +279,10 @@ func (c *clientConn) processDataFrame(f *http2.DataFrame) error {
 	if v, loaded := c.clientStreams.Load(f.StreamID); loaded {
 		if cs, ok := v.(*clientStream); ok {
 			cs.mu.Lock()
-			cs.payload = append(cs.payload, f.Data()...)
-			cs.mu.Unlock()
-
+			defer cs.mu.Unlock()
+			cs.payload.Write(f.Data())
 			if f.StreamEnded() {
-				c.clientStreams.Delete(f.StreamID)
-				close(cs.doneCh)
+				cs.done()
 			}
 		}
 	}
@@ -238,31 +290,41 @@ func (c *clientConn) processDataFrame(f *http2.DataFrame) error {
 }
 
 func (c *clientConn) processHeaderFrame(f *http2.HeadersFrame) error {
-	if v, loaded := c.clientStreams.Load(f.StreamID); loaded {
-		if cs, ok := v.(*clientStream); ok {
-			headers, err := c.decoder.DecodeFull(f.HeaderBlockFragment())
+	v, loaded := c.clientStreams.Load(f.StreamID)
+	if !loaded {
+		log.Printf("Stream %d not found", f.StreamID)
+		return nil
+	}
+	cs, ok := v.(*clientStream)
+	if !ok {
+		log.Printf("Stream %d is not a clientStream", f.StreamID)
+		return nil
+	}
 
-			if err != nil {
-				return fmt.Errorf("[stream-%03d] Failed to decode headers: %w", f.StreamID, err)
-			}
+	headers, err := c.decoder.DecodeFull(f.HeaderBlockFragment())
+	if err != nil {
+		return fmt.Errorf("[stream-%03d] Failed to decode headers: %w", f.StreamID, err)
+	}
 
-			for _, hf := range headers {
-				log.Printf("received header (%s: %s)", hf.Name, hf.Value)
-				if hf.Name == "grpc-status" {
-					if statusCode, er := strconv.Atoi(hf.Value); er == nil {
-						cs.grpcStatus = statusCode
-					} else {
-						log.Printf("[ERROR] failed to parse grpc status: %v", hf.Value)
-					}
-				} else if hf.Name == "grpc-message" {
-					cs.grpcMessage = hf.Value
-				} else if hf.Name == "grpc-encoding" {
-					cs.compressionAlgo = hf.Value
+	if f.StreamEnded() {
+		for _, hf := range headers {
+			log.Printf("Received trailer (%s: %s)", hf.Name, hf.Value)
+			cs.trailers.Add(hf.Name, hf.Value)
+			if hf.Name == ":status" {
+				if statusCode, er := strconv.Atoi(hf.Value); er == nil {
+					cs.statusCode = statusCode
 				}
 			}
-			if f.StreamEnded() {
-				c.clientStreams.Delete(f.StreamID)
-				close(cs.doneCh)
+		}
+		cs.done()
+	} else {
+		for _, hf := range headers {
+			log.Printf("Received header (%s: %s)", hf.Name, hf.Value)
+			cs.responseHeaders.Add(hf.Name, hf.Value)
+			if hf.Name == ":status" {
+				if statusCode, er := strconv.Atoi(hf.Value); er == nil {
+					cs.statusCode = statusCode
+				}
 			}
 		}
 	}
@@ -272,10 +334,9 @@ func (c *clientConn) processHeaderFrame(f *http2.HeadersFrame) error {
 func (c *clientConn) processRSTStreamFrame(f *http2.RSTStreamFrame) error {
 	if v, loaded := c.clientStreams.Load(f.StreamID); loaded {
 		if cs, ok := v.(*clientStream); ok {
-			cs.grpcStatus = int(f.ErrCode)
-			cs.grpcMessage = "Stream reset by server"
-			c.clientStreams.Delete(f.StreamID)
-			close(cs.doneCh)
+			cs.trailers.Add("grpc-status", strconv.Itoa(int(f.ErrCode)))
+			cs.trailers.Add("grpc-message", "stream reset by server")
+			cs.done()
 		}
 	}
 	return nil
@@ -298,7 +359,7 @@ func (c *clientConn) processSettingsFrame(f *http2.SettingsFrame) error {
 			return
 		}
 		err := c.framer.WriteSettingsAck()
-		// 	close(c.settingsAcked)
+		close(c.settingsAcked)
 		errCh <- err
 	})
 	return <-errCh
@@ -326,10 +387,10 @@ func (c *clientConn) processGoAwayFrame(f *http2.GoAwayFrame) error {
 		f.StreamID, f.ErrCode, f.DebugData())
 	c.clientStreams.Range(func(key, value any) bool {
 		if cs, ok := value.(*clientStream); ok {
-			cs.grpcStatus = int(f.ErrCode)
-			cs.grpcMessage = "stream go away"
+			cs.trailers.Add("grpc-status", strconv.Itoa(int(f.ErrCode)))
+			cs.trailers.Add("grpc-message", string(f.DebugData()))
 			c.clientStreams.Delete(cs.streamId)
-			close(cs.doneCh)
+			cs.done()
 		}
 		return true
 	})
@@ -348,18 +409,40 @@ func (c *clientConn) encodeHpackHeaders(headers []hpack.HeaderField) []byte {
 	return c.encoderBuf.Bytes()
 }
 
-func http2Headers(serverURL *url.URL) []hpack.HeaderField {
-	return []hpack.HeaderField{
-		{Name: ":method", Value: "POST"},
-		{Name: ":scheme", Value: serverURL.Scheme},
-		{Name: ":authority", Value: serverURL.Host},
-		{Name: ":path", Value: serverURL.RequestURI()},
-		// todo remove grpc specify headers
-		{Name: "content-type", Value: "application/grpc"},
-		{Name: "te", Value: "trailers"},
-		{Name: "grpc-encoding", Value: "identity"},
-		{Name: "grpc-accept-encoding", Value: "identity"},
+func (c *clientConn) createHeaderFields(req *http.Request) ([]hpack.HeaderField, error) {
+	scheme := req.URL.Scheme
+	if scheme == "" {
+		scheme = "https"
 	}
+	authority := req.Host
+	if authority == "" {
+		authority = req.URL.Host
+	}
+
+	headers := []hpack.HeaderField{
+		{Name: ":method", Value: req.Method},
+		{Name: ":scheme", Value: scheme},
+		{Name: ":authority", Value: authority},
+		{Name: ":path", Value: req.URL.RequestURI()},
+	}
+
+	for key, values := range req.Header {
+		for _, value := range values {
+			headers = append(headers, hpack.HeaderField{Name: strings.ToLower(key), Value: strings.ToLower(value)})
+		}
+	}
+
+	return headers, nil
+}
+
+func validateRequest(req *http.Request) error {
+	if req.URL == nil {
+		return fmt.Errorf("request URL is nil")
+	}
+	if req.Method == "" {
+		return fmt.Errorf("request method is empty")
+	}
+	return nil
 }
 
 func dialConn(serverURL *url.URL) (net.Conn, error) {
@@ -385,10 +468,10 @@ func dialConn(serverURL *url.URL) (net.Conn, error) {
 	}
 }
 
+// getHostAddress constructs the host address from the URL
 func getHostAddress(parsedURL *url.URL) string {
-	parsedURL.RequestURI()
 	host := parsedURL.Host
-	if parsedURL.Port() == "" {
+	if !hasPort(host) {
 		switch parsedURL.Scheme {
 		case "https":
 			host += ":443"
@@ -397,4 +480,10 @@ func getHostAddress(parsedURL *url.URL) string {
 		}
 	}
 	return host
+}
+
+// hasPort checks if the host includes a port
+func hasPort(host string) bool {
+	_, _, err := net.SplitHostPort(host)
+	return err == nil
 }
