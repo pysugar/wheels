@@ -16,27 +16,43 @@ import (
 
 // export GODEBUG=http2debug=1
 func TestCallGPRC(t *testing.T) {
-	//serverURL, _ := url.Parse("https://localhost:8443/grpc.health.v1.Health/Check")
-	//callServiceConcurrency(t, serverURL, 300)
+	serverURL, _ := url.Parse("https://localhost:8443/grpc.health.v1.Health/Check")
+	callGrpcConcurrency(t, serverURL, 300)
 
 	serverURL2, _ := url.Parse("http://localhost:8080/grpc/grpc.health.v1.Health/Check")
-	callServiceConcurrency(t, serverURL2, 300)
+	callGrpcConcurrency(t, serverURL2, 300)
 
 	//serverURL3, _ := url.Parse("http://localhost:8080/grpc.health.v1.Health/Check")
-	//callServiceConcurrency(t, serverURL3, 1)
+	//callGrpcConcurrency(t, serverURL3, 1)
 }
 
 func TestCallHTTP2(t *testing.T) {
 	ipinfoURL, _ := url.Parse("https://ipinfo.io/")
-	cc, err := newClientConn(ipinfoURL)
+	callHTTP2Concurrency(t, ipinfoURL, 120)
+}
+
+func callHTTP2Concurrency(t *testing.T, serverURL *url.URL, concurrent int) {
+	cc, err := newClientConn(serverURL)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	var wg sync.WaitGroup
+	for i := 0; i < concurrent; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			callHTTP2(t, cc, serverURL)
+		}()
+	}
+	wg.Wait()
+}
+
+func callHTTP2(t *testing.T, cc *clientConn, serverURL *url.URL) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	req, err := http.NewRequestWithContext(ctx, "GET", ipinfoURL.String(), nil)
+	req, err := http.NewRequestWithContext(ctx, "GET", serverURL.String(), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -56,7 +72,7 @@ func TestCallHTTP2(t *testing.T) {
 	t.Logf("Body: %s", body)
 }
 
-func callServiceConcurrency(t *testing.T, serverURL *url.URL, concurrent int) {
+func callGrpcConcurrency(t *testing.T, serverURL *url.URL, concurrent int) {
 	cc, err := newClientConn(serverURL)
 	if err != nil {
 		t.Fatal(err)
