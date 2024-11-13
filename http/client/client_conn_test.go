@@ -16,11 +16,11 @@ import (
 
 // export GODEBUG=http2debug=1
 func TestCallGPRC(t *testing.T) {
-	serverURL, _ := url.Parse("https://localhost:8443/grpc.health.v1.Health/Check")
-	callServiceConcurrency(t, serverURL, 3)
+	//serverURL, _ := url.Parse("https://localhost:8443/grpc.health.v1.Health/Check")
+	//callServiceConcurrency(t, serverURL, 300)
 
 	serverURL2, _ := url.Parse("http://localhost:8080/grpc/grpc.health.v1.Health/Check")
-	callServiceConcurrency(t, serverURL2, 3)
+	callServiceConcurrency(t, serverURL2, 300)
 
 	//serverURL3, _ := url.Parse("http://localhost:8080/grpc.health.v1.Health/Check")
 	//callServiceConcurrency(t, serverURL3, 1)
@@ -113,7 +113,7 @@ func callHealthCheck(t *testing.T, cc *clientConn, url *url.URL) {
 
 	resBytes, err := DecodeGrpcPayload(resOriginBytes)
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("resBytes: %s, error: %v", resBytes, err)
 	}
 	err = proto.Unmarshal(resBytes, res)
 	if err != nil {

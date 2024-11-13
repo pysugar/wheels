@@ -43,19 +43,22 @@ type (
 	}
 
 	clientConn struct {
-		serverURL     *url.URL
-		conn          net.Conn
-		framer        *http2.Framer
-		serializer    *concurrent.CallbackSerializer
-		cancel        context.CancelFunc
-		streamIdGen   uint32
-		clientStreams sync.Map // streamID -> activeStream
-		encoder       *hpack.Encoder
-		decoder       *hpack.Decoder
-		encoderBuf    bytes.Buffer // encoder buffer
-		closed        bool
-		mu            sync.Mutex
-		settingsAcked chan struct{}
+		serverURL              *url.URL
+		conn                   net.Conn
+		framer                 *http2.Framer
+		serializer             *concurrent.CallbackSerializer
+		streamIdGen            uint32
+		clientStreams          sync.Map // streamID -> activeStream
+		maxConcurrentStreams   uint32
+		maxConcurrentSemaphore chan struct{}
+		encoder                *hpack.Encoder
+		decoder                *hpack.Decoder
+		encoderBuf             bytes.Buffer // encoder buffer
+		encodeMu               sync.Mutex
+		closed                 bool
+		mu                     sync.Mutex
+		cancel                 context.CancelFunc
+		settingsAcked          chan struct{}
 	}
 )
 
@@ -80,12 +83,13 @@ func newClientConn(serverURL *url.URL) (*clientConn, error) {
 	framer := http2.NewFramer(conn, conn)
 	ctx, cancel := context.WithCancel(context.Background())
 	cc := &clientConn{
-		serverURL:     serverURL,
-		conn:          conn,
-		framer:        framer,
-		serializer:    concurrent.NewCallbackSerializer(ctx),
-		cancel:        cancel,
-		settingsAcked: make(chan struct{}),
+		serverURL:            serverURL,
+		conn:                 conn,
+		framer:               framer,
+		serializer:           concurrent.NewCallbackSerializer(ctx),
+		cancel:               cancel,
+		maxConcurrentStreams: 1000,
+		settingsAcked:        make(chan struct{}),
 	}
 	cc.encoder = hpack.NewEncoder(&cc.encoderBuf)
 	cc.decoder = hpack.NewDecoder(4096, nil)
@@ -108,10 +112,17 @@ func newClientConn(serverURL *url.URL) (*clientConn, error) {
 		cc.close()
 		return nil, fmt.Errorf("timeout waiting for settings ack")
 	}
+
+	cc.maxConcurrentSemaphore = make(chan struct{}, cc.maxConcurrentStreams)
 	return cc, nil
 }
 
 func (c *clientConn) do(ctx context.Context, req *http.Request) (res *http.Response, err error) {
+	c.maxConcurrentSemaphore <- struct{}{}
+	defer func() {
+		<-c.maxConcurrentSemaphore
+	}()
+
 	if er := validateRequest(req); er != nil {
 		return nil, er
 	}
@@ -130,34 +141,11 @@ func (c *clientConn) do(ctx context.Context, req *http.Request) (res *http.Respo
 			return
 		}
 
-		streamId := atomic.AddUint32(&c.streamIdGen, 2) - 1
-		headersBuf := c.encodeHpackHeaders(headerFields)
-		er := c.framer.WriteHeaders(http2.HeadersFrameParam{
-			StreamID:      streamId,
-			BlockFragment: headersBuf,
-			EndHeaders:    true,
-			EndStream:     req.Body == nil,
-		})
-
-		if er != nil {
-			clientStreamCh <- struct {
-				cs  *clientStream
-				err error
-			}{nil, err}
-		} else {
-			cs := &clientStream{
-				streamId:        streamId,
-				activeAt:        time.Now(),
-				doneCh:          make(chan struct{}),
-				responseHeaders: make(http.Header),
-				trailers:        make(http.Header),
-			}
-			c.clientStreams.Store(streamId, cs)
-			clientStreamCh <- struct {
-				cs  *clientStream
-				err error
-			}{cs, nil}
-		}
+		cs, er := c.startClientStream(headerFields, req.Body == nil)
+		clientStreamCh <- struct {
+			cs  *clientStream
+			err error
+		}{cs, er}
 	})
 
 	var cs *clientStream
@@ -206,6 +194,33 @@ func (c *clientConn) do(ctx context.Context, req *http.Request) (res *http.Respo
 	case <-ctx.Done():
 		return nil, ctx.Err()
 	}
+}
+
+func (c *clientConn) startClientStream(headerFields []hpack.HeaderField, endStream bool) (*clientStream, error) {
+	headersPayload := c.encodeHpackHeaders(headerFields)
+
+	streamId := atomic.AddUint32(&c.streamIdGen, 2) - 1
+	err := c.framer.WriteHeaders(http2.HeadersFrameParam{
+		StreamID:      streamId,
+		BlockFragment: headersPayload,
+		EndHeaders:    true,
+		EndStream:     endStream,
+	})
+
+	if err != nil {
+		return nil, err
+	}
+
+	cs := &clientStream{
+		streamId:        streamId,
+		activeAt:        time.Now(),
+		doneCh:          make(chan struct{}),
+		responseHeaders: make(http.Header),
+		trailers:        make(http.Header),
+	}
+	c.clientStreams.Store(streamId, cs)
+
+	return cs, nil
 }
 
 func (c *clientConn) readLoop(ctx context.Context) {
@@ -346,6 +361,9 @@ func (c *clientConn) processSettingsFrame(f *http2.SettingsFrame) error {
 	log.Printf("Server Settings [%d]: ", f.NumSettings())
 	for i := 0; i < f.NumSettings(); i++ {
 		settings := f.Setting(i)
+		if settings.ID == http2.SettingMaxConcurrentStreams {
+			c.maxConcurrentStreams = settings.Val
+		}
 		log.Printf("\t%+v: %d\n", settings.ID, settings.Val)
 	}
 
@@ -376,7 +394,6 @@ func (c *clientConn) processPingFrame(f *http2.PingFrame) error {
 			return
 		}
 		err := c.framer.WritePing(true, f.Data)
-		// 	close(c.settingsAcked)
 		errCh <- err
 	})
 	return <-errCh
@@ -398,6 +415,9 @@ func (c *clientConn) processGoAwayFrame(f *http2.GoAwayFrame) error {
 }
 
 func (c *clientConn) encodeHpackHeaders(headers []hpack.HeaderField) []byte {
+	c.encodeMu.Lock()
+	defer c.encodeMu.Unlock()
+
 	c.encoderBuf.Reset()
 	for _, header := range headers {
 		if err := c.encoder.WriteField(header); err != nil {
