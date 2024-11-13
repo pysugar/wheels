@@ -118,11 +118,6 @@ func newClientConn(serverURL *url.URL) (*clientConn, error) {
 }
 
 func (c *clientConn) do(ctx context.Context, req *http.Request) (res *http.Response, err error) {
-	c.maxConcurrentSemaphore <- struct{}{}
-	defer func() {
-		<-c.maxConcurrentSemaphore
-	}()
-
 	if er := validateRequest(req); er != nil {
 		return nil, er
 	}
@@ -131,6 +126,11 @@ func (c *clientConn) do(ctx context.Context, req *http.Request) (res *http.Respo
 	if err != nil {
 		return nil, err
 	}
+
+	c.maxConcurrentSemaphore <- struct{}{}
+	defer func() {
+		<-c.maxConcurrentSemaphore
+	}()
 
 	clientStreamCh := make(chan struct {
 		cs  *clientStream
