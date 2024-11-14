@@ -1,11 +1,9 @@
 package client
 
-import "sync"
-
-type connPool struct {
-	mu    sync.Mutex               // TODO: maybe switch to RWMutex
-	conns map[string][]*clientConn // key is host:port
-}
+//type connPool struct {
+//	mu    sync.Mutex               // TODO: maybe switch to RWMutex
+//	conns map[string][]*clientConn // key is host:port
+//}
 
 //
 //import (

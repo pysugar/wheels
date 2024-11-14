@@ -57,6 +57,7 @@ type (
 		encodeMu               sync.Mutex
 		closed                 bool
 		mu                     sync.Mutex
+		cond                   *sync.Cond
 		cancel                 context.CancelFunc
 		settingsAcked          chan struct{}
 	}
@@ -91,6 +92,7 @@ func newClientConn(serverURL *url.URL) (*clientConn, error) {
 		maxConcurrentStreams: 1000,
 		settingsAcked:        make(chan struct{}),
 	}
+	cc.cond = sync.NewCond(&cc.mu)
 	cc.encoder = hpack.NewEncoder(&cc.encoderBuf)
 	cc.decoder = hpack.NewDecoder(4096, nil)
 
@@ -141,7 +143,7 @@ func (c *clientConn) do(ctx context.Context, req *http.Request) (res *http.Respo
 			return
 		}
 
-		cs, er := c.startClientStream(headerFields, req.Body == nil)
+		cs, er := c.startNewClientStream(headerFields, req.Body == nil)
 		clientStreamCh <- struct {
 			cs  *clientStream
 			err error
@@ -196,7 +198,7 @@ func (c *clientConn) do(ctx context.Context, req *http.Request) (res *http.Respo
 	}
 }
 
-func (c *clientConn) startClientStream(headerFields []hpack.HeaderField, endStream bool) (*clientStream, error) {
+func (c *clientConn) startNewClientStream(headerFields []hpack.HeaderField, endStream bool) (*clientStream, error) {
 	headersPayload := c.encodeHpackHeaders(headerFields)
 
 	streamId := atomic.AddUint32(&c.streamIdGen, 2) - 1
@@ -240,17 +242,56 @@ func (c *clientConn) readLoop(ctx context.Context) {
 	}
 }
 
-func (c *clientConn) close() {
+func (c *clientConn) close() error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.closed {
-		return
+		return nil
 	}
 
 	c.closed = true
 	c.cancel()
 	if c.conn != nil {
-		c.conn.Close()
+		return c.conn.Close()
+	}
+	return nil
+}
+
+func (c *clientConn) isValid() bool {
+	c.mu.Lock()
+	if c.closed {
+		c.mu.Unlock()
+		return false
+	}
+	c.mu.Unlock()
+
+	errCh := make(chan error)
+	data := [8]byte{'p', 'i', 'n', 'g', 'p', 'o', 'n', 'g'}
+	c.serializer.TrySchedule(func(ctx context.Context) {
+		err := c.framer.WritePing(true, data)
+		errCh <- err
+	})
+
+	if err := <-errCh; err != nil {
+		c.mu.Lock()
+		c.closed = true
+		c.mu.Unlock()
+		return false
+	}
+
+	pingCh := make(chan struct{})
+	go func() {
+		defer close(pingCh)
+		c.cond.L.Lock()
+		c.cond.Wait()
+		c.cond.L.Unlock()
+	}()
+
+	select {
+	case <-pingCh:
+		return true
+	case <-time.After(5 * time.Second):
+		return false
 	}
 }
 
@@ -385,6 +426,9 @@ func (c *clientConn) processSettingsFrame(f *http2.SettingsFrame) error {
 
 func (c *clientConn) processPingFrame(f *http2.PingFrame) error {
 	if f.IsAck() {
+		c.cond.L.Lock()
+		c.cond.Broadcast()
+		c.cond.L.Unlock()
 		return nil
 	}
 
