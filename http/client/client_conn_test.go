@@ -17,10 +17,10 @@ import (
 // export GODEBUG=http2debug=1
 func TestCallGPRC(t *testing.T) {
 	serverURL, _ := url.Parse("https://localhost:8443/grpc.health.v1.Health/Check")
-	callGrpcConcurrency(t, serverURL, 300)
+	callGrpcConcurrency(t, serverURL, 500)
 
 	serverURL2, _ := url.Parse("http://localhost:8080/grpc/grpc.health.v1.Health/Check")
-	callGrpcConcurrency(t, serverURL2, 300)
+	callGrpcConcurrency(t, serverURL2, 500)
 
 	//serverURL3, _ := url.Parse("http://localhost:8080/grpc.health.v1.Health/Check")
 	//callGrpcConcurrency(t, serverURL3, 1)
@@ -145,5 +145,6 @@ func callHealthCheck(t *testing.T, cc *clientConn, url *url.URL) {
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	// t.Logf("res: %+v, err: %v", res, err)
 }

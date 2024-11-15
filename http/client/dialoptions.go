@@ -7,6 +7,7 @@ type dialOptions struct {
 	// authority string
 	useTLS  bool
 	timeout time.Duration
+	verbose bool
 }
 
 type DialOption func(*dialOptions)
@@ -14,12 +15,25 @@ type DialOption func(*dialOptions)
 var (
 	defaultDialOptions = &dialOptions{
 		timeout: 30 * time.Second,
+		verbose: false,
 	}
 )
 
 func WithTLS() DialOption {
 	return func(o *dialOptions) {
 		o.useTLS = true
+	}
+}
+
+func WithTimeout(timeout time.Duration) DialOption {
+	return func(o *dialOptions) {
+		o.timeout = timeout
+	}
+}
+
+func WithVerbose() DialOption {
+	return func(o *dialOptions) {
+		o.verbose = true
 	}
 }
 

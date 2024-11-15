@@ -31,6 +31,8 @@ var (
 		InsecureSkipVerify: true, // NOTE: For testing only. Do not use in production.
 		NextProtos:         []string{"h2", "http/1.1"},
 	}
+
+	clientConnIdGen uint32
 )
 
 type (
@@ -47,6 +49,7 @@ type (
 	}
 
 	clientConn struct {
+		id                     uint32
 		dopts                  *dialOptions
 		target                 string
 		conn                   net.Conn
@@ -90,6 +93,7 @@ func dialContext(ctx context.Context, target string, opts ...DialOption) (*clien
 	framer := http2.NewFramer(conn, conn)
 	ctx, cancel := context.WithCancel(context.Background())
 	cc := &clientConn{
+		id:                   atomic.AddUint32(&clientConnIdGen, 1),
 		dopts:                dopts,
 		target:               target,
 		conn:                 conn,
@@ -111,12 +115,12 @@ func dialContext(ctx context.Context, target string, opts ...DialOption) (*clien
 		log.Printf("[clientConn] write settings failed: %v", er)
 		return nil, er
 	}
-	log.Printf("[clientConn] client write settings")
+	cc.verbose("[clientConn] client write settings")
 	go cc.readLoop(ctx)
 
 	select {
 	case <-cc.settingsAcked:
-		log.Printf("[clientConn] Settings acknowledged by server")
+		cc.verbose("[clientConn] Settings acknowledged by server")
 		cc.maxConcurrentSemaphore = make(chan struct{}, cc.maxConcurrentStreams)
 		return cc, nil
 	case <-time.After(dopts.timeout):
@@ -126,6 +130,13 @@ func dialContext(ctx context.Context, target string, opts ...DialOption) (*clien
 }
 
 func (c *clientConn) do(ctx context.Context, req *http.Request) (res *http.Response, err error) {
+	c.mu.Lock()
+	if c.closed {
+		c.mu.Unlock()
+		return nil, fmt.Errorf("clientConn closed")
+	}
+	c.mu.Unlock()
+
 	if er := validateRequest(req); er != nil {
 		return nil, er
 	}
@@ -312,7 +323,7 @@ func (c *clientConn) readFrame(ctx context.Context) error {
 		return err
 	}
 
-	log.Printf("[stream-%03d] Received %s Frame: %+v", frame.Header().StreamID, frame.Header().Type, frame)
+	c.verbose("[stream-%03d] Received %s Frame: %+v", frame.Header().StreamID, frame.Header().Type, frame)
 
 	switch f := frame.(type) {
 	case *http2.DataFrame: // 0
@@ -370,7 +381,7 @@ func (c *clientConn) processHeaderFrame(f *http2.HeadersFrame) error {
 
 	if f.StreamEnded() {
 		for _, hf := range headers {
-			log.Printf("Received trailer (%s: %s)", hf.Name, hf.Value)
+			c.verbose("Received trailer (%s: %s)", hf.Name, hf.Value)
 			cs.trailers.Add(hf.Name, hf.Value)
 			if hf.Name == ":status" {
 				if statusCode, er := strconv.Atoi(hf.Value); er == nil {
@@ -381,7 +392,7 @@ func (c *clientConn) processHeaderFrame(f *http2.HeadersFrame) error {
 		cs.done()
 	} else {
 		for _, hf := range headers {
-			log.Printf("Received header (%s: %s)", hf.Name, hf.Value)
+			c.verbose("Received header (%s: %s)", hf.Name, hf.Value)
 			cs.responseHeaders.Add(hf.Name, hf.Value)
 			if hf.Name == ":status" {
 				if statusCode, er := strconv.Atoi(hf.Value); er == nil {
@@ -405,13 +416,13 @@ func (c *clientConn) processRSTStreamFrame(f *http2.RSTStreamFrame) error {
 }
 
 func (c *clientConn) processSettingsFrame(f *http2.SettingsFrame) error {
-	log.Printf("Server Settings [%d]: ", f.NumSettings())
+	c.verbose("Server Settings [%d]: ", f.NumSettings())
 	for i := 0; i < f.NumSettings(); i++ {
 		settings := f.Setting(i)
 		if settings.ID == http2.SettingMaxConcurrentStreams {
 			c.maxConcurrentStreams = settings.Val
 		}
-		log.Printf("\t%+v: %d\n", settings.ID, settings.Val)
+		c.verbose("\t%+v: %d\n", settings.ID, settings.Val)
 	}
 
 	if f.IsAck() {
@@ -450,8 +461,9 @@ func (c *clientConn) processPingFrame(f *http2.PingFrame) error {
 }
 
 func (c *clientConn) processGoAwayFrame(f *http2.GoAwayFrame) error {
-	log.Printf("Received GOAWAY frame: LastStreamID=%d, SteamID=%d, ErrorCode=%d, DebugData=%s", f.LastStreamID,
+	c.verbose("Received GOAWAY frame: LastStreamID=%d, SteamID=%d, ErrorCode=%d, DebugData=%s", f.LastStreamID,
 		f.StreamID, f.ErrCode, f.DebugData())
+	defer c.Close()
 	c.clientStreams.Range(func(key, value any) bool {
 		if cs, ok := value.(*clientStream); ok {
 			cs.trailers.Add("grpc-status", strconv.Itoa(int(f.ErrCode)))
@@ -474,7 +486,7 @@ func (c *clientConn) encodeHpackHeaders(headers []hpack.HeaderField) []byte {
 			log.Printf("failed to encode header field: %v", err)
 			continue
 		}
-		log.Printf("Send Header %s: %s\n", header.Name, header.Value)
+		c.verbose("Send Header %s: %s\n", header.Name, header.Value)
 	}
 	return c.encoderBuf.Bytes()
 }
@@ -503,6 +515,12 @@ func (c *clientConn) createHeaderFields(req *http.Request) ([]hpack.HeaderField,
 	}
 
 	return headers, nil
+}
+
+func (c *clientConn) verbose(format string, v ...any) {
+	if c.dopts.verbose {
+		log.Printf(format, v...)
+	}
 }
 
 func validateRequest(req *http.Request) error {
