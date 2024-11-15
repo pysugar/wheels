@@ -24,7 +24,7 @@ func (p *connPool) Close() (err error) {
 	p.Lock()
 	defer p.Unlock()
 	for _, conn := range p.conns {
-		err = conn.close()
+		err = conn.Close()
 	}
 	p.conns = nil
 	return err
@@ -35,15 +35,18 @@ func (cp *connPool) getConn(ctx context.Context, target string, opts ...DialOpti
 	cc := cp.conns[target]
 	cp.RUnlock()
 
-	if cc != nil && cc.isValid() {
-		return cc, nil
+	if cc != nil {
+		if cc.isValid() {
+			return cc, nil
+		}
+		cc.Close()
 	}
 
 	v, err, shared := cp.g.Do(target, func() (interface{}, error) {
 		return dialContext(ctx, target, opts...)
 	})
 
-	log.Printf("get conn success, target: %s, shard: %v", target, shared)
+	log.Printf("[connPool] get conn success, target: %s, shard: %v", target, shared)
 
 	if err != nil {
 		return nil, err

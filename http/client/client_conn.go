@@ -52,6 +52,7 @@ type (
 		conn                   net.Conn
 		framer                 *http2.Framer
 		serializer             *concurrent.CallbackSerializer
+		cancel                 context.CancelFunc
 		streamIdGen            uint32
 		clientStreams          sync.Map // streamID -> activeStream
 		maxConcurrentStreams   uint32
@@ -63,7 +64,6 @@ type (
 		closed                 bool
 		mu                     sync.Mutex
 		cond                   *sync.Cond
-		cancel                 context.CancelFunc
 		settingsAcked          chan struct{}
 	}
 )
@@ -107,7 +107,7 @@ func dialContext(ctx context.Context, target string, opts ...DialOption) (*clien
 		ID:  http2.SettingMaxConcurrentStreams,
 		Val: 1024,
 	}); er != nil {
-		cc.close()
+		cc.Close()
 		log.Printf("[clientConn] write settings failed: %v", er)
 		return nil, er
 	}
@@ -117,13 +117,12 @@ func dialContext(ctx context.Context, target string, opts ...DialOption) (*clien
 	select {
 	case <-cc.settingsAcked:
 		log.Printf("[clientConn] Settings acknowledged by server")
+		cc.maxConcurrentSemaphore = make(chan struct{}, cc.maxConcurrentStreams)
+		return cc, nil
 	case <-time.After(dopts.timeout):
-		cc.close()
+		cc.Close()
 		return nil, fmt.Errorf("timeout waiting for settings ack")
 	}
-
-	cc.maxConcurrentSemaphore = make(chan struct{}, cc.maxConcurrentStreams)
-	return cc, nil
 }
 
 func (c *clientConn) do(ctx context.Context, req *http.Request) (res *http.Response, err error) {
@@ -232,24 +231,7 @@ func (c *clientConn) startNewClientStream(headerFields []hpack.HeaderField, endS
 	return cs, nil
 }
 
-func (c *clientConn) readLoop(ctx context.Context) {
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		default:
-			if err := c.readFrame(ctx); err != nil {
-				if err == io.EOF {
-					log.Printf("Connection closed by remote host")
-					return
-				}
-				log.Printf("Failed to read frame: %v", err)
-			}
-		}
-	}
-}
-
-func (c *clientConn) close() error {
+func (c *clientConn) Close() error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.closed {
@@ -299,6 +281,23 @@ func (c *clientConn) isValid() bool {
 		return true
 	case <-time.After(5 * time.Second):
 		return false
+	}
+}
+
+func (c *clientConn) readLoop(ctx context.Context) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		default:
+			if err := c.readFrame(ctx); err != nil {
+				if err == io.EOF {
+					log.Printf("Connection closed by remote host")
+					return
+				}
+				log.Printf("Failed to read frame: %v", err)
+			}
+		}
 	}
 }
 
