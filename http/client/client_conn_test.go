@@ -32,7 +32,12 @@ func TestCallHTTP2(t *testing.T) {
 }
 
 func callHTTP2Concurrency(t *testing.T, serverURL *url.URL, concurrent int) {
-	cc, err := newClientConn(serverURL)
+	ctx := context.Background()
+	dopts := make([]DialOption, 0)
+	if serverURL.Scheme == "https" {
+		dopts = append(dopts, WithTLS())
+	}
+	cc, err := dialContext(ctx, serverURL.Host, dopts...)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -73,7 +78,12 @@ func callHTTP2(t *testing.T, cc *clientConn, serverURL *url.URL) {
 }
 
 func callGrpcConcurrency(t *testing.T, serverURL *url.URL, concurrent int) {
-	cc, err := newClientConn(serverURL)
+	ctx := context.Background()
+	dopts := make([]DialOption, 0)
+	if serverURL.Scheme == "https" {
+		dopts = append(dopts, WithTLS())
+	}
+	cc, err := dialContext(ctx, serverURL.Host, dopts...)
 	if err != nil {
 		t.Fatal(err)
 	}

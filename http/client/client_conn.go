@@ -9,7 +9,6 @@ import (
 	"log"
 	"net"
 	"net/http"
-	"net/url"
 	"strconv"
 	"strings"
 	"sync"
@@ -27,6 +26,11 @@ const (
 
 var (
 	clientPreface = []byte(ClientPreface)
+
+	insecureTLSConfig = &tls.Config{
+		InsecureSkipVerify: true, // NOTE: For testing only. Do not use in production.
+		NextProtos:         []string{"h2", "http/1.1"},
+	}
 )
 
 type (
@@ -43,7 +47,8 @@ type (
 	}
 
 	clientConn struct {
-		serverURL              *url.URL
+		dopts                  *dialOptions
+		target                 string
 		conn                   net.Conn
 		framer                 *http2.Framer
 		serializer             *concurrent.CallbackSerializer
@@ -69,8 +74,9 @@ func (cs *clientStream) done() {
 	})
 }
 
-func newClientConn(serverURL *url.URL) (*clientConn, error) {
-	conn, err := dialConn(serverURL)
+func dialContext(ctx context.Context, target string, opts ...DialOption) (*clientConn, error) {
+	dopts := evaluateOptions(opts)
+	conn, err := dialConn(target, dopts)
 	if err != nil {
 		return nil, err
 	}
@@ -84,7 +90,8 @@ func newClientConn(serverURL *url.URL) (*clientConn, error) {
 	framer := http2.NewFramer(conn, conn)
 	ctx, cancel := context.WithCancel(context.Background())
 	cc := &clientConn{
-		serverURL:            serverURL,
+		dopts:                dopts,
+		target:               target,
 		conn:                 conn,
 		framer:               framer,
 		serializer:           concurrent.NewCallbackSerializer(ctx),
@@ -110,7 +117,7 @@ func newClientConn(serverURL *url.URL) (*clientConn, error) {
 	select {
 	case <-cc.settingsAcked:
 		log.Printf("[clientConn] Settings acknowledged by server")
-	case <-time.After(5 * time.Second):
+	case <-time.After(dopts.timeout):
 		cc.close()
 		return nil, fmt.Errorf("timeout waiting for settings ack")
 	}
@@ -509,41 +516,18 @@ func validateRequest(req *http.Request) error {
 	return nil
 }
 
-func dialConn(serverURL *url.URL) (net.Conn, error) {
-	addr := getHostAddress(serverURL)
-	if serverURL.Scheme == "https" {
-		tlsConfig := &tls.Config{
-			InsecureSkipVerify: true, // NOTE: For testing only. Do not use in production.
-			NextProtos:         []string{"h2", "http/1.1"},
+func dialConn(addr string, o *dialOptions) (net.Conn, error) {
+	if o.useTLS {
+		if !hasPort(addr) {
+			addr += ":443"
 		}
-		conn, err := tls.Dial("tcp", addr, tlsConfig)
-		if err != nil {
-			log.Printf("dial conn err: %v\n", err)
-			return nil, err
-		}
-		return conn, nil
-	} else {
-		conn, err := net.Dial("tcp", addr)
-		if err != nil {
-			log.Printf("dial conn err: %v\n", err)
-			return nil, err
-		}
-		return conn, nil
+		return tls.Dial("tcp", addr, insecureTLSConfig)
 	}
-}
 
-// getHostAddress constructs the host address from the URL
-func getHostAddress(parsedURL *url.URL) string {
-	host := parsedURL.Host
-	if !hasPort(host) {
-		switch parsedURL.Scheme {
-		case "https":
-			host += ":443"
-		case "http":
-			host += ":80"
-		}
+	if !hasPort(addr) {
+		addr += ":80"
 	}
-	return host
+	return net.Dial("tcp", addr)
 }
 
 // hasPort checks if the host includes a port

@@ -1,6 +1,7 @@
 package client
 
 import (
+	"context"
 	"net/url"
 	"sync"
 	"testing"
@@ -15,9 +16,11 @@ func TestCallGrpcConcurrency(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			cc, err := cp.getConn(serverURL)
+			ctx := context.Background()
+			cc, err := cp.getConn(ctx, serverURL.Host, WithTLS())
 			if err != nil {
-				t.Error(err)
+				t.Errorf("getConn err: %v", err)
+				return
 			}
 			callHealthCheck(t, cc, serverURL)
 		}()

@@ -1,8 +1,9 @@
 package client
 
 import (
+	"context"
 	"golang.org/x/sync/singleflight"
-	"net/url"
+	"log"
 	"sync"
 )
 
@@ -29,19 +30,20 @@ func (p *connPool) Close() (err error) {
 	return err
 }
 
-func (cp *connPool) getConn(url *url.URL) (*clientConn, error) {
-	serviceKey := url.Host
+func (cp *connPool) getConn(ctx context.Context, target string, opts ...DialOption) (*clientConn, error) {
 	cp.RLock()
-	cc := cp.conns[serviceKey]
+	cc := cp.conns[target]
 	cp.RUnlock()
 
 	if cc != nil && cc.isValid() {
 		return cc, nil
 	}
 
-	v, err, _ := cp.g.Do(serviceKey, func() (interface{}, error) {
-		return newClientConn(url)
+	v, err, shared := cp.g.Do(target, func() (interface{}, error) {
+		return dialContext(ctx, target, opts...)
 	})
+
+	log.Printf("get conn success, target: %s, shard: %v", target, shared)
 
 	if err != nil {
 		return nil, err
@@ -51,7 +53,7 @@ func (cp *connPool) getConn(url *url.URL) (*clientConn, error) {
 
 	cp.Lock()
 	defer cp.Unlock()
-	cp.conns[serviceKey] = cc
+	cp.conns[target] = cc
 
 	return cc, nil
 }
