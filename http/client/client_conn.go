@@ -103,7 +103,9 @@ func dialContext(ctx context.Context, target string, opts ...DialOption) (*clien
 		maxConcurrentStreams: 1000,
 		settingsAcked:        make(chan struct{}),
 	}
-	cc.cond = sync.NewCond(&cc.mu)
+
+	var mu sync.Mutex
+	cc.cond = sync.NewCond(&mu)
 	cc.encoder = hpack.NewEncoder(&cc.encoderBuf)
 	cc.decoder = hpack.NewDecoder(4096, nil)
 
@@ -156,6 +158,7 @@ func (c *clientConn) do(ctx context.Context, req *http.Request) (res *http.Respo
 		err error
 	})
 	c.serializer.TrySchedule(func(ctx context.Context) {
+		fmt.Printf("write header\n")
 		if ctx.Err() != nil {
 			return
 		}
@@ -186,6 +189,7 @@ func (c *clientConn) do(ctx context.Context, req *http.Request) (res *http.Respo
 		}
 		errCh := make(chan error)
 		c.serializer.TrySchedule(func(ctx context.Context) {
+			fmt.Printf("write data\n")
 			errCh <- c.framer.WriteData(cs.streamId, true, reqBytes)
 		})
 		err = <-errCh
@@ -261,6 +265,7 @@ func (c *clientConn) isValid() bool {
 	c.mu.Lock()
 	if c.closed {
 		c.mu.Unlock()
+		fmt.Printf("clientConn is invalid, conn is closed, target: %s\n", c.target)
 		return false
 	}
 	c.mu.Unlock()
@@ -268,7 +273,8 @@ func (c *clientConn) isValid() bool {
 	errCh := make(chan error)
 	data := [8]byte{'p', 'i', 'n', 'g', 'p', 'o', 'n', 'g'}
 	c.serializer.TrySchedule(func(ctx context.Context) {
-		err := c.framer.WritePing(true, data)
+		fmt.Printf("write ping\n")
+		err := c.framer.WritePing(false, data)
 		errCh <- err
 	})
 
@@ -276,21 +282,27 @@ func (c *clientConn) isValid() bool {
 		c.mu.Lock()
 		c.closed = true
 		c.mu.Unlock()
+		fmt.Printf("clientConn is invalid, write ping timeout, target: %s\n", c.target)
 		return false
 	}
 
 	pingCh := make(chan struct{})
 	go func() {
 		defer close(pingCh)
+		fmt.Printf("clientConn start wait try lock: %s\n", c.target)
 		c.cond.L.Lock()
+		fmt.Printf("clientConn start wait try lock success: %s\n", c.target)
 		c.cond.Wait()
+		fmt.Printf("clientConn end wait: %s\n", c.target)
 		c.cond.L.Unlock()
 	}()
 
 	select {
 	case <-pingCh:
+		fmt.Printf("clientConn is valid, ping acked, target: %s\n", c.target)
 		return true
-	case <-time.After(5 * time.Second):
+	case <-time.After(30 * time.Second):
+		fmt.Printf("clientConn is invalid, read ping ack timeout, target: %s\n", c.target)
 		return false
 	}
 }
@@ -416,6 +428,10 @@ func (c *clientConn) processRSTStreamFrame(f *http2.RSTStreamFrame) error {
 }
 
 func (c *clientConn) processSettingsFrame(f *http2.SettingsFrame) error {
+	if f.IsAck() {
+		return nil
+	}
+
 	c.verbose("Server Settings [%d]: ", f.NumSettings())
 	for i := 0; i < f.NumSettings(); i++ {
 		settings := f.Setting(i)
@@ -425,12 +441,9 @@ func (c *clientConn) processSettingsFrame(f *http2.SettingsFrame) error {
 		c.verbose("\t%+v: %d\n", settings.ID, settings.Val)
 	}
 
-	if f.IsAck() {
-		return nil
-	}
-
 	errCh := make(chan error)
 	c.serializer.TrySchedule(func(ctx context.Context) {
+		fmt.Printf("write setting ack\n")
 		if ctx.Err() != nil {
 			return
 		}
@@ -443,14 +456,18 @@ func (c *clientConn) processSettingsFrame(f *http2.SettingsFrame) error {
 
 func (c *clientConn) processPingFrame(f *http2.PingFrame) error {
 	if f.IsAck() {
+		fmt.Printf("clientConn start broadcast try lock: %s\n", c.target)
 		c.cond.L.Lock()
+		fmt.Printf("clientConn start broadcast try lock success: %s\n", c.target)
 		c.cond.Broadcast()
+		fmt.Printf("clientConn end broadcast: %s\n", c.target)
 		c.cond.L.Unlock()
 		return nil
 	}
 
 	errCh := make(chan error)
 	c.serializer.TrySchedule(func(ctx context.Context) {
+		fmt.Printf("write ping ack\n")
 		if ctx.Err() != nil {
 			return
 		}

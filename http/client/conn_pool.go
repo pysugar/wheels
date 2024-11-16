@@ -2,6 +2,7 @@ package client
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"sync"
 
@@ -9,7 +10,7 @@ import (
 )
 
 type connPool struct {
-	sync.RWMutex
+	rw      sync.RWMutex
 	conns   map[string]*clientConn
 	g       *singleflight.Group
 	verbose bool
@@ -23,8 +24,8 @@ func newConnPool() *connPool {
 }
 
 func (p *connPool) Close() (err error) {
-	p.Lock()
-	defer p.Unlock()
+	p.rw.Lock()
+	defer p.rw.Unlock()
 	for _, conn := range p.conns {
 		err = conn.Close()
 	}
@@ -33,16 +34,17 @@ func (p *connPool) Close() (err error) {
 }
 
 func (cp *connPool) getConn(ctx context.Context, target string, opts ...DialOption) (*clientConn, error) {
-	cp.RLock()
+	cp.rw.RLock()
 	cc := cp.conns[target]
-	cp.RUnlock()
+	cp.rw.RUnlock()
 
 	if cc != nil {
 		if cc.isValid() {
 			cp.printf("[connPool] get conn success from cache, target: %s", target)
 			return cc, nil
 		}
-		cc.Close()
+		fmt.Printf("[connPool] get conn fail from cache, target: %s\n", target)
+		// cc.Close()
 	}
 
 	v, err, shared := cp.g.Do(target, func() (interface{}, error) {
@@ -60,9 +62,9 @@ func (cp *connPool) getConn(ctx context.Context, target string, opts ...DialOpti
 
 	cc = v.(*clientConn)
 	cp.printf("[connPool] get conn-%05d success, target: %s, shared: %v", cc.id, target, shared)
-	
-	cp.Lock()
-	defer cp.Unlock()
+
+	cp.rw.Lock()
+	defer cp.rw.Unlock()
 	cp.conns[target] = cc
 
 	return cc, nil
