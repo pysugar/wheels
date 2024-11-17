@@ -49,7 +49,7 @@ func (cp *connPool) getConn(ctx context.Context, target string, opts ...DialOpti
 
 	v, err, shared := cp.g.Do(target, func() (interface{}, error) {
 		if cp.verbose {
-			// opts = append(opts, WithVerbose())
+			opts = append(opts, WithVerbose())
 		}
 
 		cp.printf("[connPool] connect to target: %s", target)

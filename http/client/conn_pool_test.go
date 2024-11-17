@@ -2,9 +2,11 @@ package client
 
 import (
 	"context"
+	"math/rand"
 	"net/url"
 	"sync"
 	"testing"
+	"time"
 )
 
 func TestCallGrpcConcurrency(t *testing.T) {
@@ -13,27 +15,12 @@ func TestCallGrpcConcurrency(t *testing.T) {
 	cp := newConnPool()
 	cp.verbose = true
 	var wg sync.WaitGroup
-	for i := 0; i < 2; i++ {
+	for i := 0; i < 500; i++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
 			ctx := context.Background()
-			cc, err := cp.getConn(ctx, serverURL.Host, WithTLS())
-			if err != nil {
-				t.Errorf("getConn err: %v", err)
-				return
-			}
-			callHealthCheck(t, cc, serverURL)
-		}()
-	}
-	wg.Wait()
-
-	wg = sync.WaitGroup{}
-	for i := 0; i < 1; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			ctx := context.Background()
+			time.Sleep(time.Millisecond * time.Duration(rand.Int()%100))
 			cc, err := cp.getConn(ctx, serverURL.Host, WithTLS())
 			if err != nil {
 				t.Errorf("getConn err: %v", err)
