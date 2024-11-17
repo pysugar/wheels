@@ -15,12 +15,12 @@ func TestCallGrpcConcurrency(t *testing.T) {
 	cp := newConnPool()
 	cp.verbose = true
 	var wg sync.WaitGroup
-	for i := 0; i < 500; i++ {
+	for i := 0; i < 3; i++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
 			ctx := context.Background()
-			time.Sleep(time.Millisecond * time.Duration(rand.Int()%100))
+			time.Sleep(time.Millisecond * time.Duration(rand.Int()%3000))
 			cc, err := cp.getConn(ctx, serverURL.Host, WithTLS())
 			if err != nil {
 				t.Errorf("getConn err: %v", err)

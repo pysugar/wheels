@@ -66,7 +66,7 @@ type (
 		encodeMu               sync.Mutex
 		closed                 bool
 		mu                     sync.Mutex
-		cond                   *sync.Cond
+		pingWaiters            []chan struct{}
 		settingsAcked          chan struct{}
 	}
 )
@@ -104,8 +104,6 @@ func dialContext(ctx context.Context, target string, opts ...DialOption) (*clien
 		settingsAcked:        make(chan struct{}),
 	}
 
-	var mu sync.Mutex
-	cc.cond = sync.NewCond(&mu)
 	cc.encoder = hpack.NewEncoder(&cc.encoderBuf)
 	cc.decoder = hpack.NewDecoder(4096, nil)
 
@@ -273,6 +271,8 @@ func (c *clientConn) isValid() bool {
 		log.Printf("clientConn is invalid, conn is closed, target: %s\n", c.target)
 		return false
 	}
+	ackCh := make(chan struct{}, 1)
+	c.pingWaiters = append(c.pingWaiters, ackCh)
 	c.mu.Unlock()
 
 	errCh := make(chan error)
@@ -285,25 +285,26 @@ func (c *clientConn) isValid() bool {
 	if err := <-errCh; err != nil {
 		c.mu.Lock()
 		c.closed = true
+		c.pingWaiters = nil
 		c.mu.Unlock()
 		log.Printf("clientConn is invalid, write ping timeout, target: %s\n", c.target)
 		return false
 	}
 
-	pingCh := make(chan struct{})
-	go func() {
-		defer close(pingCh)
-		c.cond.L.Lock()
-		c.cond.Wait()
-		c.cond.L.Unlock()
-	}()
-
 	select {
-	case <-pingCh:
+	case <-ackCh:
 		c.verbose("clientConn is valid, ping acked, target: %s\n", c.target)
 		return true
 	case <-time.After(3 * time.Second):
 		log.Printf("clientConn is invalid, read ping ack timeout, target: %s\n", c.target)
+		c.mu.Lock()
+		for i, ch := range c.pingWaiters {
+			if ch == ackCh {
+				c.pingWaiters = append(c.pingWaiters[:i], c.pingWaiters[i+1:]...)
+				break
+			}
+		}
+		c.mu.Unlock()
 		return false
 	}
 }
@@ -456,9 +457,12 @@ func (c *clientConn) processSettingsFrame(f *http2.SettingsFrame) error {
 
 func (c *clientConn) processPingFrame(f *http2.PingFrame) error {
 	if f.IsAck() {
-		c.cond.L.Lock()
-		c.cond.Broadcast()
-		c.cond.L.Unlock()
+		c.mu.Lock()
+		for _, ch := range c.pingWaiters {
+			close(ch)
+		}
+		c.pingWaiters = nil
+		c.mu.Unlock()
 		return nil
 	}
 
