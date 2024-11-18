@@ -7,7 +7,6 @@ import (
 	"encoding/base64"
 	"encoding/binary"
 	"fmt"
-	"github.com/pysugar/wheels/grpc/http2client"
 	"io"
 	"log"
 	"net"
@@ -18,6 +17,7 @@ import (
 
 	"github.com/pysugar/wheels/binproto/http2"
 	"github.com/pysugar/wheels/cmd/base"
+	"github.com/pysugar/wheels/grpc/http2client"
 	"github.com/spf13/cobra"
 	"golang.org/x/net/http2/hpack"
 	pb "google.golang.org/grpc/health/grpc_health_v1"

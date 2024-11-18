@@ -1,6 +1,9 @@
 package client
 
-import "time"
+import (
+	"net"
+	"time"
+)
 
 // dialOptions configure a Dial call. dialOptions are set by the DialOption values passed to Dial.
 type dialOptions struct {
@@ -8,6 +11,7 @@ type dialOptions struct {
 	useTLS  bool
 	timeout time.Duration
 	verbose bool
+	conn    net.Conn
 }
 
 type DialOption func(*dialOptions)
@@ -28,6 +32,12 @@ func WithTLS() DialOption {
 func WithTimeout(timeout time.Duration) DialOption {
 	return func(o *dialOptions) {
 		o.timeout = timeout
+	}
+}
+
+func WithConn(conn net.Conn) DialOption {
+	return func(o *dialOptions) {
+		o.conn = conn
 	}
 }
 

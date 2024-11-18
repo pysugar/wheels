@@ -1,12 +1,25 @@
 package client
 
+import (
+	"bufio"
+	"context"
+	"crypto/tls"
+	"encoding/base64"
+	"fmt"
+	"log"
+	"net"
+	"net/http"
+	"net/url"
+	"strings"
+)
+
 //type connPool struct {
 //	mu    sync.Mutex               // TODO: maybe switch to RWMutex
 //	conns map[string][]*clientConn // key is host:port
 //}
 
+// import (
 //
-//import (
 //	"context"
 //	"github.com/pysugar/wheels/binproto/http2"
 //	"github.com/pysugar/wheels/concurrent"
@@ -15,98 +28,136 @@ package client
 //	"net"
 //	"net/url"
 //	"sync/atomic"
-//)
 //
-//const (
+// )
+//
+// const (
+//
 //	ClientPreface = "PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n"
-//)
 //
-//type (
-//	Fetcher interface {
-//		Close()
-//	}
-//
-//	fetcher struct {
-//		userAgent  string
-//		method     string
-//		serializer *concurrent.CallbackSerializer
-//		cancel     context.CancelFunc
-//	}
-//)
-//
-//var (
-//	clientPreface = []byte(ClientPreface)
-//)
-//
-//func NewFetcher() Fetcher {
-//	ctx, cancel := context.WithCancel(context.Background())
-//	return &fetcher{
-//		serializer: concurrent.NewCallbackSerializer(ctx),
-//		cancel:     cancel,
-//	}
-//}
-//
-//func (f *fetcher) Close() {
-//	f.cancel()
-//}
-//
-//func (f *fetcher) sendRequest(conn net.Conn) {
-//
-//}
-//
-//func (f *fetcher) CallHTTP2(parsedURL *url.URL) error {
-//	conn, err := dialConn(parsedURL)
-//	if err != nil {
-//		return err
-//	}
-//	defer conn.Close()
-//
-//	clientPreface := []byte("PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n")
-//	log.Printf("< Send HTTP/2 Client Preface: %s\n", clientPreface)
-//	n, err := conn.Write(clientPreface)
-//	if err != nil {
-//		log.Printf("Failed to send HTTP/2 Client Preface, err = %v, n = %d\n", err, n)
-//		return err
-//	}
-//
-//	// SETTINGS payload:
-//	settings := []byte{
-//		0x00, 0x03, 0x00, 0x00, 0x00, 0x64, // SETTINGS_MAX_CONCURRENT_STREAMS = 100
-//		0x00, 0x04, 0x00, 0x00, 0x40, 0x00, // SETTINGS_INITIAL_WINDOW_SIZE = 16384
-//	}
-//	err = http2.WriteSettingsFrame(conn, 0, settings)
-//	if err != nil {
-//		log.Println("Failed to send HTTP/2 settings:", err)
-//		return err
-//	}
-//	log.Printf("Send HTTP/2 Client Preface and Settings Done >\n")
-//
-//	doneCh := make(chan struct{})
-//	go func() {
-//		defer close(doneCh)
-//		f.readLoop(conn)
-//	}()
-//
-//	localStreamID := atomic.AddUint32(&streamID, 2) - 2
-//	err = f.sendRequestHeadersHTTP2(conn, localStreamID, parsedURL)
-//	if err != nil {
-//		log.Println("Failed to send HTTP/2 request headers:", err)
-//		return err
-//	}
-//
-//	requestData := &pb.HealthCheckRequest{}
-//	requestBody, err := http2.EncodeGrpcFrame(requestData)
-//	if err != nil {
-//		log.Println("Failed to BuildGrpcFrame:", err)
-//		return err
-//	}
-//	err = f.sendRequestBodyHTTP2(conn, localStreamID, requestBody)
-//	if err != nil {
-//		log.Println("Failed to send HTTP/2 request body:", err)
-//		return err
-//	}
-//
-//	log.Printf("< Send HTTP/2 request done, url: %v\n", parsedURL)
-//	<-doneCh
-//	return nil
-//}
+// )
+type (
+	Fetcher interface {
+		Close()
+	}
+
+	fetcher struct {
+		userAgent string
+		verbose   bool
+		connPool  *connPool
+	}
+)
+
+func (f *fetcher) printf(format string, v ...any) {
+	if f.verbose {
+		log.Printf(format, v...)
+	}
+}
+
+func (f *fetcher) Do(ctx context.Context, req *http.Request) (*http.Response, error) {
+	conn, err := dialConn(req.Host, req.URL.Scheme == "https")
+	if err != nil {
+		return nil, err
+	}
+
+	err = sendUpgradeRequestHTTP1(conn, req.Method, req.URL)
+	if err != nil {
+		log.Println("Failed to send HTTP/1.1 Upgrade request:", err)
+		return nil, err
+	}
+
+	// Read the server's response to the upgrade request
+	upgraded, err := readUpgradeResponse(conn)
+	if err != nil {
+		log.Printf("Fail to read response from Upgrade: %v\n", err)
+	}
+
+	if upgraded {
+		cc, er := f.connPool.getConn(ctx, req.URL.Host, WithConn(conn))
+		if er != nil {
+			return nil, err
+		}
+		return cc.do(ctx, req)
+	}
+
+	return nil, nil
+}
+
+func dialConn(addr string, useTLS bool) (net.Conn, error) {
+	if useTLS {
+		if !hasPort(addr) {
+			addr += ":443"
+		}
+		return tls.Dial("tcp", addr, insecureTLSConfig)
+	}
+
+	if !hasPort(addr) {
+		addr += ":80"
+	}
+	return net.Dial("tcp", addr)
+}
+
+// hasPort checks if the host includes a port
+func hasPort(host string) bool {
+	_, _, err := net.SplitHostPort(host)
+	return err == nil
+}
+
+func sendUpgradeRequestHTTP1(conn net.Conn, method string, parsedURL *url.URL) error {
+	host := parsedURL.Host
+	path := parsedURL.RequestURI()
+
+	// Generate HTTP2-Settings header value with specific SETTINGS frame (base64 encoded)
+	settingPayload := []byte{
+		// SETTINGS payload:
+		0x00, 0x03, 0x00, 0x00, 0x00, 0x64, // SETTINGS_MAX_CONCURRENT_STREAMS = 100
+		0x00, 0x04, 0x00, 0x00, 0x40, 0x00, // SETTINGS_INITIAL_WINDOW_SIZE = 16384
+	}
+	http2Settings := base64.StdEncoding.EncodeToString(settingPayload)
+
+	log.Println("< Sent HTTP/1.1 Upgrade request")
+	// Create HTTP/1.1 Upgrade request
+	request := fmt.Sprintf(
+		"%s %s HTTP/1.1\r\n"+
+			"Host: %s\r\n"+
+			"User-Agent: curl/8.7.1\r\n"+
+			"Accept: */*\r\n"+
+			"Connection: Upgrade, HTTP2-Settings\r\n"+
+			"Upgrade: h2c\r\n"+
+			"HTTP2-Settings: %s\r\n\r\n",
+		method, path, host, http2Settings)
+
+	log.Printf("%s\n", request)
+	if _, err := conn.Write([]byte(request)); err != nil {
+		return err
+	}
+	return nil
+}
+
+func readUpgradeResponse(conn net.Conn) (bool, error) {
+	reader := bufio.NewReader(conn)
+	statusLine, err := reader.ReadString('\n')
+	if err != nil {
+		return false, err
+	}
+	log.Printf("Upgrade Status Line: %s", statusLine)
+	if !strings.Contains(statusLine, "101 Switching Protocols") {
+		log.Printf("Fail upgraded to HTTP/2 (h2c) >\n")
+		return false, nil
+	}
+
+	// Read headers until an empty line
+	for {
+		line, er := reader.ReadString('\n')
+		if er != nil {
+			return false, er
+		}
+		log.Print(line)
+		if strings.TrimSpace(line) == "" {
+			break
+		}
+	}
+
+	log.Printf("Successfully upgraded to HTTP/2 (h2c) >\n")
+	return true, nil
+}

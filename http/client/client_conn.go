@@ -77,11 +77,14 @@ func (cs *clientStream) done() {
 	})
 }
 
-func dialContext(ctx context.Context, target string, opts ...DialOption) (*clientConn, error) {
+func dialContext(ctx context.Context, target string, opts ...DialOption) (cc *clientConn, err error) {
 	dopts := evaluateOptions(opts)
-	conn, err := dialConn(target, dopts)
-	if err != nil {
-		return nil, err
+	conn := dopts.conn
+	if conn == nil {
+		conn, err = dialConn(target, dopts.useTLS)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	log.Printf("[%T] Send HTTP/2 Client Preface: %s\n", conn, clientPreface)
@@ -92,7 +95,7 @@ func dialContext(ctx context.Context, target string, opts ...DialOption) (*clien
 
 	framer := http2.NewFramer(conn, conn)
 	ctx, cancel := context.WithCancel(context.Background())
-	cc := &clientConn{
+	cc = &clientConn{
 		id:                   atomic.AddUint32(&clientConnIdGen, 1),
 		dopts:                dopts,
 		target:               target,
@@ -561,24 +564,4 @@ func validateRequest(req *http.Request) error {
 		return fmt.Errorf("request method is empty")
 	}
 	return nil
-}
-
-func dialConn(addr string, o *dialOptions) (net.Conn, error) {
-	if o.useTLS {
-		if !hasPort(addr) {
-			addr += ":443"
-		}
-		return tls.Dial("tcp", addr, insecureTLSConfig)
-	}
-
-	if !hasPort(addr) {
-		addr += ":80"
-	}
-	return net.Dial("tcp", addr)
-}
-
-// hasPort checks if the host includes a port
-func hasPort(host string) bool {
-	_, _, err := net.SplitHostPort(host)
-	return err == nil
 }

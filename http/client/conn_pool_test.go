@@ -31,3 +31,26 @@ func TestCallGrpcConcurrency(t *testing.T) {
 	}
 	wg.Wait()
 }
+
+func TestCallHTTP(t *testing.T) {
+	serverURL, _ := url.Parse("http://ipinfo.io")
+
+	cp := newConnPool()
+	cp.verbose = true
+	var wg sync.WaitGroup
+	for i := 0; i < 1; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			ctx := context.Background()
+			time.Sleep(time.Millisecond * time.Duration(rand.Int()%3000))
+			cc, err := cp.getConn(ctx, serverURL.Host)
+			if err != nil {
+				t.Errorf("getConn err: %v", err)
+				return
+			}
+			callHTTP2(t, cc, serverURL)
+		}()
+	}
+	wg.Wait()
+}

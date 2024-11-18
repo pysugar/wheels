@@ -1,0 +1,6 @@
+### GET request to root
+GET http://localhost:8080/
+
+### GET request to heartbeat
+GET http://localhost:8080/heartbeat
+
