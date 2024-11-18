@@ -125,7 +125,7 @@ func dialContext(ctx context.Context, target string, opts ...DialOption) (*clien
 		return cc, nil
 	case <-time.After(dopts.timeout):
 		cc.Close()
-		return nil, fmt.Errorf("timeout waiting for settings ack")
+		return nil, fmt.Errorf("[clientConn] timeout waiting for settings ack")
 	}
 }
 
@@ -141,15 +141,48 @@ func (c *clientConn) do(ctx context.Context, req *http.Request) (res *http.Respo
 		return nil, er
 	}
 
-	headerFields, err := c.createHeaderFields(req)
-	if err != nil {
-		return nil, err
-	}
-
 	c.maxConcurrentSemaphore <- struct{}{}
 	defer func() {
 		<-c.maxConcurrentSemaphore
 	}()
+
+	cs, err := c.writeHeaders(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+	defer c.clientStreams.Delete(cs.streamId)
+
+	if req.Body != nil {
+		if er := c.writeBody(ctx, cs.streamId, req.Body); er != nil {
+			return nil, er
+		}
+	}
+
+	select {
+	case <-cs.doneCh:
+		resp := &http.Response{
+			StatusCode:    cs.statusCode,
+			Status:        fmt.Sprintf("%d %s", cs.statusCode, http.StatusText(cs.statusCode)),
+			Proto:         "HTTP/2.0",
+			ProtoMajor:    2,
+			ProtoMinor:    0,
+			Header:        cs.responseHeaders,
+			Trailer:       cs.trailers,
+			Body:          io.NopCloser(&cs.payload),
+			ContentLength: int64(cs.payload.Len()),
+			Request:       req,
+		}
+		return resp, nil
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+}
+
+func (c *clientConn) writeHeaders(ctx context.Context, req *http.Request) (*clientStream, error) {
+	headerFields, err := c.createHeaderFields(req)
+	if err != nil {
+		return nil, err
+	}
 
 	clientStreamCh := make(chan struct {
 		cs  *clientStream
@@ -176,50 +209,29 @@ func (c *clientConn) do(ctx context.Context, req *http.Request) (res *http.Respo
 			return nil, ret.err
 		}
 		cs = ret.cs
-		defer c.clientStreams.Delete(ret.cs.streamId)
+		return cs, nil
+	}
+}
+
+func (c *clientConn) writeBody(ctx context.Context, streamId uint32, body io.ReadCloser) error {
+	bodyBytes, err := io.ReadAll(body)
+	if err != nil {
+		return err
 	}
 
-	if req.Body != nil {
-		reqBytes, er := io.ReadAll(req.Body)
-		if er != nil {
-			return nil, er
+	errCh := make(chan error)
+	c.serializer.TrySchedule(func(ccCtx context.Context) {
+		if ccCtx.Err() != nil {
+			return
 		}
-		errCh := make(chan error)
-		c.serializer.TrySchedule(func(ccCtx context.Context) {
-			if ccCtx.Err() != nil {
-				return
-			}
-			if ctx.Err() != nil {
-				errCh <- ctx.Err()
-				return
-			}
-			errCh <- c.framer.WriteData(cs.streamId, true, reqBytes)
-		})
-		err = <-errCh
+		if ctx.Err() != nil {
+			errCh <- ctx.Err()
+			return
+		}
+		errCh <- c.framer.WriteData(streamId, true, bodyBytes)
+	})
 
-		if err != nil {
-			return nil, err
-		}
-	}
-
-	select {
-	case <-cs.doneCh:
-		resp := &http.Response{
-			StatusCode:    cs.statusCode,
-			Status:        fmt.Sprintf("%d %s", cs.statusCode, http.StatusText(cs.statusCode)),
-			Proto:         "HTTP/2.0",
-			ProtoMajor:    2,
-			ProtoMinor:    0,
-			Header:        cs.responseHeaders,
-			Trailer:       cs.trailers,
-			Body:          io.NopCloser(&cs.payload),
-			ContentLength: int64(cs.payload.Len()),
-			Request:       req,
-		}
-		return resp, nil
-	case <-ctx.Done():
-		return nil, ctx.Err()
-	}
+	return <-errCh
 }
 
 func (c *clientConn) startNewClientStream(headerFields []hpack.HeaderField, endStream bool) (*clientStream, error) {
@@ -513,6 +525,7 @@ func (c *clientConn) createHeaderFields(req *http.Request) ([]hpack.HeaderField,
 	if scheme == "" {
 		scheme = "https"
 	}
+
 	authority := req.Host
 	if authority == "" {
 		authority = req.URL.Host

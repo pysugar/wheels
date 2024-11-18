@@ -27,15 +27,15 @@ func TestCallGPRC(t *testing.T) {
 }
 
 func TestCallHTTP2(t *testing.T) {
-	ipinfoURL, _ := url.Parse("https://ipinfo.io/")
-	callHTTP2Concurrency(t, ipinfoURL, 120)
+	ipInfoURL, _ := url.Parse("https://ipinfo.io/")
+	callHTTP2Concurrency(t, ipInfoURL, 100)
 }
 
 func callHTTP2Concurrency(t *testing.T, serverURL *url.URL, concurrent int) {
 	ctx := context.Background()
 	dopts := make([]DialOption, 0)
 	if serverURL.Scheme == "https" {
-		dopts = append(dopts, WithTLS())
+		dopts = append(dopts, WithTLS(), WithVerbose())
 	}
 	cc, err := dialContext(ctx, serverURL.Host, dopts...)
 	if err != nil {
@@ -81,7 +81,7 @@ func callGrpcConcurrency(t *testing.T, serverURL *url.URL, concurrent int) {
 	ctx := context.Background()
 	dopts := make([]DialOption, 0)
 	if serverURL.Scheme == "https" {
-		dopts = append(dopts, WithTLS())
+		dopts = append(dopts, WithTLS(), WithVerbose())
 	}
 	cc, err := dialContext(ctx, serverURL.Host, dopts...)
 	if err != nil {

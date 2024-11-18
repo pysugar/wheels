@@ -15,7 +15,7 @@ func TestCallGrpcConcurrency(t *testing.T) {
 	cp := newConnPool()
 	cp.verbose = true
 	var wg sync.WaitGroup
-	for i := 0; i < 3; i++ {
+	for i := 0; i < 300; i++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
