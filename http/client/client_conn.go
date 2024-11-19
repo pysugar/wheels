@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/tls"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -85,12 +86,12 @@ func dialContext(ctx context.Context, target string, opts ...DialOption) (cc *cl
 		if err != nil {
 			return nil, err
 		}
-	}
 
-	log.Printf("[%T] Send HTTP/2 Client Preface: %s\n", conn, clientPreface)
-	if _, er := conn.Write(clientPreface); er != nil {
-		conn.Close()
-		err = er
+		log.Printf("[%T] Send HTTP/2 Client Preface: %s\n", conn, clientPreface)
+		if _, er := conn.Write(clientPreface); er != nil {
+			conn.Close()
+			err = er
+		}
 	}
 
 	framer := http2.NewFramer(conn, conn)
@@ -112,7 +113,7 @@ func dialContext(ctx context.Context, target string, opts ...DialOption) (cc *cl
 
 	if er := framer.WriteSettings(http2.Setting{
 		ID:  http2.SettingMaxConcurrentStreams,
-		Val: 1024,
+		Val: 100,
 	}); er != nil {
 		cc.Close()
 		log.Printf("[clientConn] write settings failed: %v", er)
@@ -129,6 +130,8 @@ func dialContext(ctx context.Context, target string, opts ...DialOption) (cc *cl
 	case <-time.After(dopts.timeout):
 		cc.Close()
 		return nil, fmt.Errorf("[clientConn] timeout waiting for settings ack")
+	case <-ctx.Done():
+		return nil, ctx.Err()
 	}
 }
 
@@ -211,6 +214,7 @@ func (c *clientConn) writeHeaders(ctx context.Context, req *http.Request) (*clie
 		if ret.err != nil {
 			return nil, ret.err
 		}
+		c.verbose("[clientConn] write headers done")
 		cs = ret.cs
 		return cs, nil
 	}
@@ -234,6 +238,7 @@ func (c *clientConn) writeBody(ctx context.Context, streamId uint32, body io.Rea
 		errCh <- c.framer.WriteData(streamId, true, bodyBytes)
 	})
 
+	c.verbose("[clientConn] write body done")
 	return <-errCh
 }
 
@@ -331,8 +336,9 @@ func (c *clientConn) readLoop(ctx context.Context) {
 			return
 		default:
 			if err := c.readFrame(ctx); err != nil {
-				if err == io.EOF {
+				if errors.Is(err, io.EOF) {
 					log.Printf("Connection closed by remote host")
+					c.cancel()
 					return
 				}
 				log.Printf("Failed to read frame: %v", err)
@@ -445,11 +451,13 @@ func (c *clientConn) processRSTStreamFrame(f *http2.RSTStreamFrame) error {
 }
 
 func (c *clientConn) processSettingsFrame(f *http2.SettingsFrame) error {
+	c.verbose("Server Settings [%d], isAck: %v: ", f.NumSettings(), f.IsAck())
+
 	if f.IsAck() {
+		close(c.settingsAcked)
 		return nil
 	}
 
-	c.verbose("Server Settings [%d]: ", f.NumSettings())
 	for i := 0; i < f.NumSettings(); i++ {
 		settings := f.Setting(i)
 		if settings.ID == http2.SettingMaxConcurrentStreams {
@@ -464,7 +472,6 @@ func (c *clientConn) processSettingsFrame(f *http2.SettingsFrame) error {
 			return
 		}
 		err := c.framer.WriteSettingsAck()
-		close(c.settingsAcked)
 		errCh <- err
 	})
 	return <-errCh

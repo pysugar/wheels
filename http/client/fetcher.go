@@ -55,7 +55,35 @@ func (f *fetcher) printf(format string, v ...any) {
 }
 
 func (f *fetcher) Do(ctx context.Context, req *http.Request) (*http.Response, error) {
-	conn, err := dialConn(req.Host, req.URL.Scheme == "https")
+	useTLS := req.URL.Scheme == "https"
+	if useTLS {
+		return f.doTLS(ctx, req)
+	}
+
+	return f.doHTTP(ctx, req)
+}
+
+func (f *fetcher) doHTTP(ctx context.Context, req *http.Request) (*http.Response, error) {
+	conn, err := dialConn(req.Host, false)
+	if err != nil {
+		return nil, err
+	}
+
+	if _, er := conn.Write(clientPreface); er == nil {
+		f.printf("[%s] Connect using HTTP/2 Prior Knowledge", req.URL.RequestURI())
+
+		cc, e := f.connPool.getConn(ctx, req.URL.Host, WithConn(conn))
+		if e == nil {
+			return cc.do(ctx, req)
+		} else {
+			f.printf("[%s] get client conn failure: %v", req.URL.RequestURI(), e)
+			f.printf("close conn, err: %v ", conn.Close())
+		}
+	} else {
+		f.printf("[%s] Failed to connect using HTTP/2 Prior Knowledge: %v", req.URL.RequestURI(), er)
+	}
+
+	conn, err = dialConn(req.Host, false)
 	if err != nil {
 		return nil, err
 	}
@@ -77,7 +105,34 @@ func (f *fetcher) Do(ctx context.Context, req *http.Request) (*http.Response, er
 		if er != nil {
 			return nil, err
 		}
+
 		return cc.do(ctx, req)
+	}
+
+	return nil, nil
+}
+
+func (f *fetcher) doTLS(ctx context.Context, req *http.Request) (*http.Response, error) {
+	conn, err := dialConn(req.Host, true)
+	if err != nil {
+		return nil, err
+	}
+
+	if c, ok := conn.(*tls.Conn); ok {
+		state := c.ConnectionState()
+		fmt.Printf("NegotiatedProtocol: %s\n", state.NegotiatedProtocol)
+		if state.NegotiatedProtocol == "h2" {
+			if _, er := conn.Write(clientPreface); er != nil {
+				return nil, er
+			}
+
+			cc, e := f.connPool.getConn(ctx, req.URL.Host, WithConn(conn))
+			if e == nil {
+				f.printf("[%s] Connect using NegotiatedProtocol", req.URL.RequestURI())
+				return cc.do(ctx, req)
+			}
+			f.printf("[%s] Failed to connect using NegotiatedProtocol: %v", req.URL.RequestURI(), err)
+		}
 	}
 
 	return nil, nil
@@ -111,7 +166,6 @@ func sendUpgradeRequestHTTP1(conn net.Conn, method string, parsedURL *url.URL) e
 	settingPayload := []byte{
 		// SETTINGS payload:
 		0x00, 0x03, 0x00, 0x00, 0x00, 0x64, // SETTINGS_MAX_CONCURRENT_STREAMS = 100
-		0x00, 0x04, 0x00, 0x00, 0x40, 0x00, // SETTINGS_INITIAL_WINDOW_SIZE = 16384
 	}
 	http2Settings := base64.StdEncoding.EncodeToString(settingPayload)
 
@@ -126,6 +180,15 @@ func sendUpgradeRequestHTTP1(conn net.Conn, method string, parsedURL *url.URL) e
 			"Upgrade: h2c\r\n"+
 			"HTTP2-Settings: %s\r\n\r\n",
 		method, path, host, http2Settings)
+
+	//request := fmt.Sprintf(
+	//	"OPTIONS * HTTP/1.1\r\n"+
+	//		"Host: %s\r\n"+
+	//		"Connection: Upgrade, HTTP2-Settings\r\n"+
+	//		"Upgrade: h2c\r\n"+
+	//		"HTTP2-Settings: %s\r\n"+
+	//		"\r\n",
+	//	host, http2Settings)
 
 	log.Printf("%s\n", request)
 	if _, err := conn.Write([]byte(request)); err != nil {

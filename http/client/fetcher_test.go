@@ -15,7 +15,9 @@ import (
 func TestFetcher_Do(t *testing.T) {
 	// serverURL, _ := url.Parse("http://ipinfo.io/")
 	// serverURL, _ := url.Parse("https://ipinfo.io/")
-	serverURL, _ := url.Parse("http://localhost:8080/grpc/grpc.health.v1.Health/Check")
+	serverURL, _ := url.Parse("http://ifconfig.me/")
+	// serverURL, _ := url.Parse("https://ifconfig.me/")
+	// serverURL, _ := url.Parse("http://localhost:8080/grpc/grpc.health.v1.Health/Check")
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -25,8 +27,11 @@ func TestFetcher_Do(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	cp := newConnPool()
+	cp.verbose = true
 	f := &fetcher{
-		connPool: newConnPool(),
+		verbose:  true,
+		connPool: cp,
 	}
 	res, err := f.Do(ctx, req)
 	if err != nil {
@@ -36,7 +41,8 @@ func TestFetcher_Do(t *testing.T) {
 }
 
 func TestFetcher_H2C_GRPC(t *testing.T) {
-	serverURL, _ := url.Parse("http://localhost:8080/grpc/grpc.health.v1.Health/Check")
+	// serverURL, _ := url.Parse("http://localhost:8080/grpc/grpc.health.v1.Health/Check")
+	serverURL, _ := url.Parse("http://127.0.0.1:50051/grpc.health.v1.Health/Check")
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -60,6 +66,7 @@ func TestFetcher_H2C_GRPC(t *testing.T) {
 	cp := newConnPool()
 	cp.verbose = true
 	f := &fetcher{
+		verbose:  true,
 		connPool: cp,
 	}
 
