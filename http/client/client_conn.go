@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/tls"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"io"
@@ -23,8 +24,6 @@ import (
 
 const (
 	ClientPreface = "PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n"
-
-	pingRequestQueueSize = 1000000
 )
 
 var (
@@ -51,11 +50,6 @@ type (
 		doneOnce        sync.Once
 	}
 
-	pingRequest struct {
-		reqKey uint64
-		err    error
-	}
-
 	clientConn struct {
 		id                     uint32
 		dopts                  *dialOptions
@@ -74,11 +68,9 @@ type (
 		encodeMu               sync.Mutex
 		closed                 bool
 		mu                     sync.Mutex
-		pingerCh               chan struct{}
-		pingRequests           map[uint64]chan pingRequest
+		pingRequests           map[uint64]chan uint64
 		nextRequest            uint64 // Next key to use in pingRequests.
-		//pingWaiters            []chan struct{}
-		settingsAcked chan struct{}
+		settingsAcked          chan struct{}
 	}
 )
 
@@ -116,8 +108,7 @@ func dialContext(ctx context.Context, target string, opts ...DialOption) (cc *cl
 		cancel:               cancel,
 		maxConcurrentStreams: 1000,
 		settingsAcked:        make(chan struct{}),
-		pingerCh:             make(chan struct{}, pingRequestQueueSize),
-		pingRequests:         make(map[uint64]chan pingRequest),
+		pingRequests:         make(map[uint64]chan uint64),
 	}
 
 	cc.encoder = hpack.NewEncoder(&cc.encoderBuf)
@@ -304,25 +295,33 @@ func (c *clientConn) isValid(ctx context.Context) bool {
 		return false
 	}
 
-	req := make(chan pingRequest, 1)
+	req := make(chan uint64, 1)
 	reqKey := c.nextRequestKeyLocked()
 	c.pingRequests[reqKey] = req
-	c.mu.Unlock()
 
-	errCh := make(chan error)
-	data := [8]byte{'p', 'i', 'n', 'g', 'p', 'o', 'n', 'g'}
-	c.serializer.TrySchedule(func(ctx context.Context) {
-		err := c.framer.WritePing(false, data)
-		errCh <- err
-	})
-
-	if err := <-errCh; err != nil {
-		c.mu.Lock()
-		c.closed = true
-		delete(c.pingRequests, reqKey)
+	if len(c.pingRequests) > 0 {
 		c.mu.Unlock()
-		log.Printf("clientConn is invalid, write ping timeout, target: %s\n", c.target)
-		return false
+	} else {
+		var data [8]byte
+		binary.BigEndian.PutUint64(data[:], reqKey)
+		errCh := make(chan error)
+		c.serializer.TrySchedule(func(ctx context.Context) {
+			err := c.framer.WritePing(false, data)
+			errCh <- err
+		})
+
+		err := <-errCh
+		c.mu.Unlock()
+
+		if err != nil {
+			c.mu.Lock()
+			c.closed = true
+			delete(c.pingRequests, reqKey)
+			c.mu.Unlock()
+			log.Printf("clientConn is invalid, write ping timeout, target: %s\n", c.target)
+			return false
+		}
+
 	}
 
 	waitStart := time.Now()
@@ -334,7 +333,7 @@ func (c *clientConn) isValid(ctx context.Context) bool {
 
 	select {
 	case ret, ok := <-req:
-		c.verbose("[clientConn] ping acked: %v, target: %s, key: %d, cost: %dμs", ok, c.target, ret.reqKey,
+		c.verbose("[clientConn] ping acked: %v, target: %s, key: %d, cost: %dμs", ok, c.target, ret,
 			time.Since(waitStart).Microseconds())
 		if !ok {
 			// client closed
@@ -363,9 +362,6 @@ func (c *clientConn) readLoop(ctx context.Context) {
 		select {
 		case <-ctx.Done():
 			return
-		case <-c.pingerCh:
-			c.verbose("[clientConn] received ping ack, target: %s\n", c.target)
-			c.putPingAck(nil)
 		default:
 			if err := c.readFrame(ctx); err != nil {
 				if errors.Is(err, io.EOF) {
@@ -379,13 +375,14 @@ func (c *clientConn) readLoop(ctx context.Context) {
 	}
 }
 
-func (c *clientConn) putPingAck(err error) {
+func (c *clientConn) putPingAck(data [8]byte) {
+	reqKey := binary.BigEndian.Uint64(data[:])
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.putPingAckLocked(err)
+	c.putPingAckLocked(reqKey)
 }
 
-func (c *clientConn) putPingAckLocked(err error) bool {
+func (c *clientConn) putPingAckLocked(ackKey uint64) bool {
 	if c.closed {
 		return false
 	}
@@ -393,12 +390,12 @@ func (c *clientConn) putPingAckLocked(err error) bool {
 	waitingLen := len(c.pingRequests)
 	if n := waitingLen; n > 0 {
 		for reqKey, req := range c.pingRequests {
-			c.verbose("[clientConn] receive ping ack, key %d, waiting count: %d", reqKey, waitingLen)
+			//if reqKey > ackKey {
+			c.verbose("[clientConn] receive ping ack, ack key: %d, req key %d, waiting count: %d",
+				ackKey, reqKey, waitingLen)
 			delete(c.pingRequests, reqKey) // Remove from pending requests.
-			req <- pingRequest{
-				reqKey: reqKey,
-				err:    err,
-			}
+			req <- reqKey
+			//}
 		}
 		return true
 	}
@@ -543,7 +540,7 @@ func (c *clientConn) processSettingsFrame(f *http2.SettingsFrame) error {
 
 func (c *clientConn) processPingFrame(f *http2.PingFrame) error {
 	if f.IsAck() {
-		c.pingerCh <- struct{}{}
+		c.putPingAck(f.Data)
 		return nil
 	}
 
