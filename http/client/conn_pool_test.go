@@ -15,12 +15,12 @@ func TestCallGrpcConcurrency(t *testing.T) {
 	cp := newConnPool()
 	cp.verbose = true
 	var wg sync.WaitGroup
-	for i := 0; i < 300; i++ {
+	for i := 0; i < 500; i++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
 			ctx := context.Background()
-			time.Sleep(time.Millisecond * time.Duration(rand.Int()%3000))
+			time.Sleep(time.Millisecond * time.Duration(rand.Int()%100))
 			cc, err := cp.getConn(ctx, serverURL.Host, WithTLS())
 			if err != nil {
 				t.Errorf("getConn err: %v", err)
@@ -33,18 +33,18 @@ func TestCallGrpcConcurrency(t *testing.T) {
 }
 
 func TestCallHTTP(t *testing.T) {
-	serverURL, _ := url.Parse("http://ipinfo.io")
+	serverURL, _ := url.Parse("https://ipinfo.io")
 
 	cp := newConnPool()
 	cp.verbose = true
 	var wg sync.WaitGroup
-	for i := 0; i < 1; i++ {
+	for i := 0; i < 100; i++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
 			ctx := context.Background()
-			time.Sleep(time.Millisecond * time.Duration(rand.Int()%3000))
-			cc, err := cp.getConn(ctx, serverURL.Host)
+			time.Sleep(time.Millisecond * time.Duration(rand.Int()%100))
+			cc, err := cp.getConn(ctx, serverURL.Host, WithTLS())
 			if err != nil {
 				t.Errorf("getConn err: %v", err)
 				return

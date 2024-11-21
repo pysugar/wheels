@@ -39,7 +39,7 @@ func (cp *connPool) getConn(ctx context.Context, target string, opts ...DialOpti
 	cp.rw.RUnlock()
 
 	if cc != nil {
-		if cc.isValid() {
+		if cc.isValid(ctx) {
 			cp.printf("[connPool] get conn success from cache, target: %s", target)
 			return cc, nil
 		}
