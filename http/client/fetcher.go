@@ -45,11 +45,18 @@ func (f *fetcher) Do(ctx context.Context, req *http.Request) (*http.Response, er
 }
 
 func (f *fetcher) doHTTP(ctx context.Context, req *http.Request) (*http.Response, error) {
-	res, err := f.doHTTP2(ctx, req)
-	if !errors.Is(err, ErrHTTP2Unsupported) {
-		return res, err
+	protocol := ProtocolFromContext(ctx)
+	if protocol == HTTP2 {
+		return f.doHTTP2(ctx, req)
+	} else if protocol == HTTP1 || protocol == HTTP10 || protocol == HTTP11 {
+		return f.doHTTP1(ctx, req)
+	} else {
+		res, err := f.doHTTP2(ctx, req)
+		if !errors.Is(err, ErrHTTP2Unsupported) {
+			return res, err
+		}
+		return f.doHTTP1(ctx, req)
 	}
-	return f.doHTTP1(ctx, req)
 }
 
 func (f *fetcher) doTLS(ctx context.Context, req *http.Request) (*http.Response, error) {
@@ -63,11 +70,18 @@ func (f *fetcher) doTLS(ctx context.Context, req *http.Request) (*http.Response,
 		return nil, fmt.Errorf("expected *tls.Conn, got %T", conn)
 	}
 
-	res, err := f.doHTTP2WithTLS(ctx, tlsConn, req)
-	if !errors.Is(err, ErrHTTP2Unsupported) {
-		return res, err
+	protocol := ProtocolFromContext(ctx)
+	if protocol == HTTP2 {
+		return f.doHTTP2WithTLS(ctx, tlsConn, req)
+	} else if protocol == HTTP1 || protocol == HTTP10 || protocol == HTTP11 {
+		return f.doHTTP1WithConn(ctx, req, conn)
+	} else {
+		res, er := f.doHTTP2WithTLS(ctx, tlsConn, req)
+		if !errors.Is(er, ErrHTTP2Unsupported) {
+			return res, er
+		}
+		return f.doHTTP1WithConn(ctx, req, conn)
 	}
-	return f.doHTTP1WithConn(ctx, req, conn)
 }
 
 func (f *fetcher) doHTTP2WithTLS(ctx context.Context, tlsConn *tls.Conn, req *http.Request) (*http.Response, error) {
