@@ -77,7 +77,9 @@ call grpc via context path: netool fetch --grpc http://localhost:8080/grpc/grpc.
 				log.Printf("Call %v %s error: %v\n", client.ProtocolFromContext(ctx), targetURL, err)
 				return
 			}
-			fmt.Printf("http resp: %+v\n", res)
+			fmt.Printf("http status: %s\n", res.Status)
+			resBody, _ := io.ReadAll(res.Body)
+			fmt.Printf("%s", resBody)
 		},
 	}
 )
@@ -85,7 +87,7 @@ call grpc via context path: netool fetch --grpc http://localhost:8080/grpc/grpc.
 func init() {
 	fetchCmd.Flags().StringP("user-agent", "A", "", "User Agent")
 	fetchCmd.Flags().StringP("method", "M", "GET", "HTTP Method")
-	grpcCmd.Flags().StringP("data", "d", "", "request data")
+	fetchCmd.Flags().StringP("data", "d", "", "request data")
 	fetchCmd.Flags().BoolP("grpc", "G", false, "Is GRPC Request Or Not")
 	fetchCmd.Flags().BoolP("http2", "H", false, "Is HTTP2 Request Or Not")
 	fetchCmd.Flags().BoolP("verbose", "V", false, "Verbose mode")
