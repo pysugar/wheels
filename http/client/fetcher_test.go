@@ -15,8 +15,8 @@ import (
 
 func TestFetcher_Do(t *testing.T) {
 	serverURLs := []string{
-		//"http://ipinfo.io/",
-		//"https://ipinfo.io/",
+		"http://ipinfo.io/",
+		"https://ipinfo.io/",
 		"http://ifconfig.me",
 		"https://ifconfig.me",
 		"http://localhost:8080/grpc/grpc.health.v1.Health/Check",

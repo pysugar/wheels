@@ -10,13 +10,13 @@ import (
 func (f *fetcher) doHTTP2(ctx context.Context, req *http.Request) (*http.Response, error) {
 	cc, err := f.tryHTTP2Direct(ctx, req)
 	if err == nil && cc != nil {
-		f.printf("try http2 direct failure: %v", req.URL.RequestURI())
+		f.printf("try http2 direct success: %v", req.URL.RequestURI())
 		return cc.do(ctx, req)
 	}
 
 	cc, err = f.tryHTTP2Upgrade(ctx, req)
 	if err == nil && cc != nil {
-		f.printf("try http2 upgrade failure: %v", req.URL.RequestURI())
+		f.printf("try http2 upgrade success: %v", req.URL.RequestURI())
 		return cc.do(ctx, req)
 	}
 

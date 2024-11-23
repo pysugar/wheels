@@ -19,49 +19,23 @@ func (f *fetcher) doHTTP1(ctx context.Context, req *http.Request) (*http.Respons
 		return nil, err
 	}
 
+	req = req.WithContext(ctx)
+
+	if req.Header == nil {
+		req.Header = make(http.Header)
+	}
+	if req.Host == "" {
+		req.Host = req.URL.Host
+	}
+	req.Header.Set("Connection", "close")
+
+	err = req.Write(conn)
+	if err != nil {
+		return nil, err
+	}
+
 	reader := bufio.NewReader(conn)
-	writer := bufio.NewWriter(conn)
-
-	requestLine := fmt.Sprintf("%s %s HTTP/1.1\r\n", req.Method, req.URL.RequestURI())
-	_, err = writer.WriteString(requestLine)
-	if err != nil {
-		return nil, err
-	}
-
-	if req.Host != "" {
-		req.Header.Set("Host", req.Host)
-	} else {
-		req.Header.Set("Host", req.URL.Host)
-	}
-
-	if _, ok := req.Header["Connection"]; !ok {
-		req.Header.Set("Connection", "close")
-	}
-
-	err = req.Header.Write(writer)
-	if err != nil {
-		return nil, err
-	}
-
-	_, err = writer.WriteString("\r\n")
-	if err != nil {
-		return nil, err
-	}
-
-	if req.Body != nil {
-		_, err = io.Copy(writer, req.Body)
-		if err != nil {
-			return nil, err
-		}
-		req.Body.Close()
-	}
-
-	err = writer.Flush()
-	if err != nil {
-		return nil, err
-	}
-
-	resp, err := readHTTPResponse(reader, req)
+	resp, err := http.ReadResponse(reader, req)
 	if err != nil {
 		return nil, err
 	}
