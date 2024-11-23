@@ -24,7 +24,7 @@ func TestCallGrpcConcurrency(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			ctx := context.Background()
-			time.Sleep(time.Millisecond * time.Duration(rand.Int()%10))
+			time.Sleep(time.Millisecond * time.Duration(rand.Int()%3000))
 			cc, err := cp.getConn(ctx, serverURL.Host, WithTLS())
 			if err != nil {
 				t.Errorf("getConn err: %v", err)

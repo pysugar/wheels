@@ -100,7 +100,7 @@ func callGrpcConcurrency(t *testing.T, serverURL *url.URL, concurrent int) {
 }
 
 func callHealthCheck(t *testing.T, cc *clientConn, url *url.URL) {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
 	req := &grpchealthv1.HealthCheckRequest{}

@@ -24,6 +24,8 @@ import (
 
 const (
 	ClientPreface = "PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n"
+
+	maxPingRetryTimes = 3
 )
 
 var (
@@ -68,9 +70,9 @@ type (
 		encodeMu               sync.Mutex
 		closed                 bool
 		mu                     sync.Mutex
+		settingsAcked          chan struct{}
 		pingRequests           map[uint64]chan uint64
 		nextRequest            uint64 // Next key to use in pingRequests.
-		settingsAcked          chan struct{}
 	}
 )
 
@@ -297,30 +299,21 @@ func (c *clientConn) isValid(ctx context.Context) bool {
 
 	req := make(chan uint64, 1)
 	reqKey := c.nextRequestKeyLocked()
-	if len(c.pingRequests) > 0 {
-		c.pingRequests[reqKey] = req
-		c.mu.Unlock()
-	} else {
+	if len(c.pingRequests) == 0 {
 		c.pingRequests[reqKey] = req
 		c.mu.Unlock()
 
-		var data [8]byte
-		binary.BigEndian.PutUint64(data[:], reqKey)
-		errCh := make(chan error)
-		c.serializer.TrySchedule(func(ctx context.Context) {
-			err := c.framer.WritePing(false, data)
-			errCh <- err
-		})
-		err := <-errCh
-		if err != nil {
+		ok := c.sendRecvPingWithRetries(ctx, reqKey, req)
+		if !ok {
 			c.mu.Lock()
-			c.closed = true
 			delete(c.pingRequests, reqKey)
 			c.mu.Unlock()
-			log.Printf("clientConn is invalid, write ping timeout, target: %s\n", c.target)
-			return false
 		}
+		return ok
 	}
+
+	c.pingRequests[reqKey] = req
+	c.mu.Unlock()
 
 	waitStart := time.Now()
 	if _, ok := ctx.Deadline(); !ok {
@@ -330,12 +323,9 @@ func (c *clientConn) isValid(ctx context.Context) bool {
 	}
 
 	select {
-	case ret, ok := <-req:
-		log.Printf("[clientConn] ping acked: %v, target: %s, req: %d, ack: %d, cost: %dμs", ok, c.target,
-			reqKey, ret, time.Since(waitStart).Microseconds())
-		if !ok {
-			c.verbose("[clientConn] ping acked ignored closed, target: %s\n", c.target)
-		}
+	case ackKey, ok := <-req:
+		log.Printf("[clientConn] ping acked-: %v, target: %s, req: %d, ack: %d, cost: %dμs", ok, c.target,
+			reqKey, ackKey, time.Since(waitStart).Microseconds())
 		return true
 	case <-ctx.Done():
 		log.Printf("clientConn is invalid, read ping ack timeout, target: %s, cost: %dμs\n", c.target,
@@ -372,6 +362,46 @@ func (c *clientConn) readLoop(ctx context.Context) {
 	}
 }
 
+func (c *clientConn) sendRecvPingWithRetries(ctx context.Context, reqKey uint64, req <-chan uint64) bool {
+	var data [8]byte
+	binary.BigEndian.PutUint64(data[:], reqKey)
+	pingTimeout := time.Second
+	waitStart := time.Now()
+	for i := 0; i < maxPingRetryTimes; i++ {
+		if err := c.sendPing(false, data); err != nil {
+			return false
+		}
+
+		select {
+		case ackKey, ok := <-req:
+			log.Printf("[clientConn] ping acked+: %v, target: %s, req: %d, ack: %d, cost: %dμs", ok, c.target,
+				reqKey, ackKey, time.Since(waitStart).Microseconds())
+			return true
+		case <-time.After(pingTimeout):
+			log.Printf("[clientConn] ping timeout, req: %v, retrying... (%d/%d)", reqKey, i+1, maxPingRetryTimes)
+			continue
+		case <-ctx.Done():
+			log.Printf("[clientConn] ping timeout, context done, target: %s, req: %d, cost: %dμs, err: %v",
+				c.target, reqKey, time.Since(waitStart).Microseconds(), ctx.Err())
+			return false
+		}
+	}
+	log.Printf("Ping failed after %d retries, cost: %dμs", maxPingRetryTimes, time.Since(waitStart).Microseconds())
+	return false
+}
+
+func (c *clientConn) sendPing(ack bool, data [8]byte) error {
+	errCh := make(chan error)
+	c.serializer.TrySchedule(func(ctx context.Context) {
+		if ctx.Err() != nil {
+			return
+		}
+		err := c.framer.WritePing(ack, data)
+		errCh <- err
+	})
+	return <-errCh
+}
+
 func (c *clientConn) putPingAck(data [8]byte) {
 	reqKey := binary.BigEndian.Uint64(data[:])
 	c.mu.Lock()
@@ -387,6 +417,10 @@ func (c *clientConn) putPingAckLocked(ackKey uint64) bool {
 	waitingLen := len(c.pingRequests)
 	if n := waitingLen; n > 0 {
 		for reqKey, req := range c.pingRequests {
+			if _, has := c.pingRequests[reqKey]; !has {
+				log.Printf("[clientConn] invalid ack key: %d, maybe it has already processed", ackKey)
+				continue
+			}
 			if reqKey >= ackKey {
 				c.verbose("[clientConn] receive ping ack, ack key: %d, req key %d, waiting count: %d",
 					ackKey, reqKey, waitingLen)
@@ -542,15 +576,7 @@ func (c *clientConn) processPingFrame(f *http2.PingFrame) error {
 		return nil
 	}
 
-	errCh := make(chan error)
-	c.serializer.TrySchedule(func(ctx context.Context) {
-		if ctx.Err() != nil {
-			return
-		}
-		err := c.framer.WritePing(true, f.Data)
-		errCh <- err
-	})
-	return <-errCh
+	return c.sendPing(true, f.Data)
 }
 
 func (c *clientConn) processGoAwayFrame(f *http2.GoAwayFrame) error {
