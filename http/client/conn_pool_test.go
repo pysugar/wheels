@@ -40,7 +40,6 @@ func TestCallHTTP(t *testing.T) {
 	serverURL, _ := url.Parse("https://ipinfo.io")
 
 	cp := newConnPool()
-	cp.verbose = true
 	var wg sync.WaitGroup
 	for i := 0; i < 100; i++ {
 		wg.Add(1)

@@ -13,7 +13,8 @@ import (
 )
 
 func (f *fetcher) doHTTP1(ctx context.Context, req *http.Request) (*http.Response, error) {
-	f.printf("[%s] Falling back to HTTP/1.1", req.URL.RequestURI())
+	logger := newVerboseLogger(ctx)
+	logger.Printf("[%s] Falling back to HTTP/1.1", req.URL.RequestURI())
 
 	conn, err := dialConn(req.Host, false)
 	if err != nil {

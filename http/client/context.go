@@ -19,10 +19,15 @@ const (
 
 var (
 	protocolCtxKey = &contextKey{"protocol"}
+	verboseCtxKey  = &contextKey{"verbose"}
 )
 
 func WithProtocol(ctx context.Context, protocol HttpProtocol) context.Context {
 	return context.WithValue(ctx, protocolCtxKey, protocol)
+}
+
+func WithVerbose(ctx context.Context) context.Context {
+	return context.WithValue(ctx, verboseCtxKey, true)
 }
 
 func ProtocolFromContext(ctx context.Context) HttpProtocol {
@@ -30,4 +35,9 @@ func ProtocolFromContext(ctx context.Context) HttpProtocol {
 		return protocol
 	}
 	return Unknown
+}
+
+func VerboseFromContext(ctx context.Context) bool {
+	_, ok := ctx.Value(verboseCtxKey).(bool)
+	return ok
 }

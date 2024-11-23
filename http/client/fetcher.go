@@ -15,24 +15,44 @@ import (
 )
 
 type (
+	VerboseLogger interface {
+		Printf(format string, v ...any)
+	}
+
 	Fetcher interface {
-		Close()
+		Do(context.Context, *http.Request) (*http.Response, error)
+		Close() error
 	}
 
 	fetcher struct {
 		userAgent string
-		verbose   bool
 		connPool  *connPool
 	}
+
+	verboseLogger struct {
+		verbose bool
+	}
 )
+
+func newVerboseLogger(ctx context.Context) VerboseLogger {
+	return &verboseLogger{
+		verbose: VerboseFromContext(ctx),
+	}
+}
+
+func (vl *verboseLogger) Printf(format string, v ...any) {
+	if vl.verbose {
+		log.Printf(format, v...)
+	}
+}
 
 var (
 	ErrHTTP2Unsupported = errors.New("unsupported protocol http2")
 )
 
-func (f *fetcher) printf(format string, v ...any) {
-	if f.verbose {
-		log.Printf(format, v...)
+func NewFetcher() Fetcher {
+	return &fetcher{
+		connPool: newConnPool(),
 	}
 }
 
@@ -42,6 +62,10 @@ func (f *fetcher) Do(ctx context.Context, req *http.Request) (*http.Response, er
 		return f.doTLS(ctx, req)
 	}
 	return f.doHTTP(ctx, req)
+}
+
+func (f *fetcher) Close() error {
+	return f.connPool.Close()
 }
 
 func (f *fetcher) doHTTP(ctx context.Context, req *http.Request) (*http.Response, error) {
@@ -86,7 +110,8 @@ func (f *fetcher) doTLS(ctx context.Context, req *http.Request) (*http.Response,
 
 func (f *fetcher) doHTTP2WithTLS(ctx context.Context, tlsConn *tls.Conn, req *http.Request) (*http.Response, error) {
 	state := tlsConn.ConnectionState()
-	f.printf("NegotiatedProtocol: %s\n", state.NegotiatedProtocol)
+	logger := newVerboseLogger(ctx)
+	logger.Printf("NegotiatedProtocol: %s\n", state.NegotiatedProtocol)
 
 	if state.NegotiatedProtocol == "h2" {
 		if _, err := tlsConn.Write(clientPreface); err != nil {
@@ -94,10 +119,10 @@ func (f *fetcher) doHTTP2WithTLS(ctx context.Context, tlsConn *tls.Conn, req *ht
 		}
 		cc, err := f.connPool.getConn(ctx, req.URL.Host, WithConn(tlsConn))
 		if err == nil {
-			f.printf("[%s] Connect using NegotiatedProtocol", req.URL.RequestURI())
+			logger.Printf("[%s] Connect using NegotiatedProtocol", req.URL.RequestURI())
 			return cc.do(ctx, req)
 		}
-		f.printf("[%s] Failed to connect using NegotiatedProtocol: %v", req.URL.RequestURI(), err)
+		logger.Printf("[%s] Failed to connect using NegotiatedProtocol: %v", req.URL.RequestURI(), err)
 	}
 	return nil, ErrHTTP2Unsupported
 }

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"sync"
+	"sync/atomic"
 
 	"golang.org/x/sync/singleflight"
 )
@@ -13,7 +14,7 @@ type connPool struct {
 	rw      sync.RWMutex
 	conns   map[string]*clientConn
 	g       *singleflight.Group
-	verbose bool
+	verbose uint32
 }
 
 func newConnPool() *connPool {
@@ -38,18 +39,25 @@ func (cp *connPool) getConn(ctx context.Context, target string, opts ...DialOpti
 	cc := cp.conns[target]
 	cp.rw.RUnlock()
 
+	verboseFromContext := VerboseFromContext(ctx)
+	if verboseFromContext {
+		atomic.CompareAndSwapUint32(&cp.verbose, 0, 1)
+	} else {
+		atomic.CompareAndSwapUint32(&cp.verbose, 1, 0)
+	}
+
 	if cc != nil {
 		if cc.isValid(ctx) {
 			cp.printf("[connPool] get conn success from cache, target: %s", target)
 			return cc, nil
 		}
 		fmt.Printf("[connPool] get conn fail from cache, target: %s\n", target)
-		// cc.Close()
+		cc.Close()
 	}
 
 	v, err, shared := cp.g.Do(target, func() (interface{}, error) {
-		if cp.verbose {
-			opts = append(opts, WithVerbose())
+		if verboseFromContext {
+			opts = append(opts, withVerbose())
 		}
 
 		cp.printf("[connPool] connect to target: %s", target)
@@ -72,7 +80,7 @@ func (cp *connPool) getConn(ctx context.Context, target string, opts ...DialOpti
 }
 
 func (cp *connPool) printf(format string, v ...interface{}) {
-	if cp.verbose {
+	if atomic.LoadUint32(&cp.verbose) == 1 {
 		log.Printf(format, v...)
 	}
 }

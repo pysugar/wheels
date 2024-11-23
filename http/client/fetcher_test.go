@@ -51,9 +51,7 @@ func TestFetcher_H2C_GRPC(t *testing.T) {
 	httpReq.Header.Set("grpc-accept-encoding", "identity")
 
 	cp := newConnPool()
-	cp.verbose = true
 	f := &fetcher{
-		verbose:  true,
 		connPool: cp,
 	}
 
@@ -91,9 +89,7 @@ func doGetRequest(t *testing.T, rawURL string) {
 	}
 
 	cp := newConnPool()
-	cp.verbose = true
 	f := &fetcher{
-		verbose:  true,
 		connPool: cp,
 	}
 	res, err := f.Do(ctx, req)

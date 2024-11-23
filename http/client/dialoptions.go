@@ -41,7 +41,7 @@ func WithConn(conn net.Conn) DialOption {
 	}
 }
 
-func WithVerbose() DialOption {
+func withVerbose() DialOption {
 	return func(o *dialOptions) {
 		o.verbose = true
 	}

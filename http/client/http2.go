@@ -8,15 +8,16 @@ import (
 )
 
 func (f *fetcher) doHTTP2(ctx context.Context, req *http.Request) (*http.Response, error) {
+	logger := newVerboseLogger(ctx)
 	cc, err := f.tryHTTP2Direct(ctx, req)
 	if err == nil && cc != nil {
-		f.printf("try http2 direct success: %v", req.URL.RequestURI())
+		logger.Printf("try http2 direct success: %v", req.URL.RequestURI())
 		return cc.do(ctx, req)
 	}
 
 	cc, err = f.tryHTTP2Upgrade(ctx, req)
 	if err == nil && cc != nil {
-		f.printf("try http2 upgrade success: %v", req.URL.RequestURI())
+		logger.Printf("try http2 upgrade success: %v", req.URL.RequestURI())
 		return cc.do(ctx, req)
 	}
 
@@ -34,7 +35,7 @@ func (f *fetcher) tryHTTP2Direct(ctx context.Context, req *http.Request) (*clien
 		return nil, fmt.Errorf("[%s] Failed to connect using HTTP/2 Prior Knowledge: %v", req.URL.RequestURI(), er)
 	}
 
-	f.printf("[%s] Connect using HTTP/2 Prior Knowledge", req.URL.RequestURI())
+	newVerboseLogger(ctx).Printf("[%s] Connect using HTTP/2 Prior Knowledge", req.URL.RequestURI())
 	return f.connPool.getConn(ctx, req.URL.Host, WithConn(conn))
 }
 
@@ -44,27 +45,28 @@ func (f *fetcher) tryHTTP2Upgrade(ctx context.Context, req *http.Request) (*clie
 		return nil, err
 	}
 
-	f.printf("[%s] Attempting HTTP/2 Upgrade", req.URL.RequestURI())
+	logger := newVerboseLogger(ctx)
+	logger.Printf("[%s] Attempting HTTP/2 Upgrade", req.URL.RequestURI())
 	err = sendUpgradeRequestHTTP1(conn, req.Method, req.URL)
 	if err != nil {
-		f.printf("Failed to send HTTP/1.1 Upgrade request: %v", err)
+		logger.Printf("Failed to send HTTP/1.1 Upgrade request: %v", err)
 		conn.Close()
 		return nil, err
 	}
 
 	upgraded, err := readUpgradeResponse(conn)
 	if err != nil {
-		f.printf("Failed to read response from Upgrade: %v", err)
+		logger.Printf("Failed to read response from Upgrade: %v", err)
 		conn.Close()
 		return nil, err
 	}
 
 	if upgraded {
-		f.printf("[%s] Successfully upgraded to HTTP/2 (h2c)", req.URL.RequestURI())
+		logger.Printf("[%s] Successfully upgraded to HTTP/2 (h2c)", req.URL.RequestURI())
 		return f.connPool.getConn(ctx, req.URL.Host, WithConn(conn))
 	}
 
 	conn.Close()
-	f.printf("[%s] Server does not support HTTP/2 Upgrade", req.URL.RequestURI())
+	logger.Printf("[%s] Server does not support HTTP/2 Upgrade", req.URL.RequestURI())
 	return nil, errors.New("server does not support HTTP/2 Upgrade")
 }
