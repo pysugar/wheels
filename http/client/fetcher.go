@@ -26,6 +26,10 @@ type (
 	}
 )
 
+var (
+	ErrHTTP2Unsupported = errors.New("unsupported protocol http2")
+)
+
 func (f *fetcher) printf(format string, v ...any) {
 	if f.verbose {
 		log.Printf(format, v...)
@@ -41,18 +45,10 @@ func (f *fetcher) Do(ctx context.Context, req *http.Request) (*http.Response, er
 }
 
 func (f *fetcher) doHTTP(ctx context.Context, req *http.Request) (*http.Response, error) {
-	cc, err := f.tryHTTP2Direct(ctx, req)
-	if err == nil && cc != nil {
-		f.printf("try http2 direct failure: %v", req.URL.RequestURI())
-		return cc.do(ctx, req)
+	res, err := f.doHTTP2(ctx, req)
+	if !errors.Is(err, ErrHTTP2Unsupported) {
+		return res, err
 	}
-
-	cc, err = f.tryHTTP2Upgrade(ctx, req)
-	if err == nil && cc != nil {
-		f.printf("try http2 upgrade failure: %v", req.URL.RequestURI())
-		return cc.do(ctx, req)
-	}
-
 	return f.doHTTP1(ctx, req)
 }
 
@@ -82,52 +78,6 @@ func (f *fetcher) doTLS(ctx context.Context, req *http.Request) (*http.Response,
 	return nil, nil
 }
 
-func (f *fetcher) tryHTTP2Direct(ctx context.Context, req *http.Request) (*clientConn, error) {
-	conn, err := dialConn(req.Host, false)
-	if err != nil {
-		return nil, err
-	}
-
-	if _, er := conn.Write(clientPreface); er != nil {
-		conn.Close()
-		return nil, fmt.Errorf("[%s] Failed to connect using HTTP/2 Prior Knowledge: %v", req.URL.RequestURI(), er)
-	}
-
-	f.printf("[%s] Connect using HTTP/2 Prior Knowledge", req.URL.RequestURI())
-	return f.connPool.getConn(ctx, req.URL.Host, WithConn(conn))
-}
-
-func (f *fetcher) tryHTTP2Upgrade(ctx context.Context, req *http.Request) (*clientConn, error) {
-	conn, err := dialConn(req.Host, false)
-	if err != nil {
-		return nil, err
-	}
-
-	f.printf("[%s] Attempting HTTP/2 Upgrade", req.URL.RequestURI())
-	err = sendUpgradeRequestHTTP1(conn, req.Method, req.URL)
-	if err != nil {
-		f.printf("Failed to send HTTP/1.1 Upgrade request: %v", err)
-		conn.Close()
-		return nil, err
-	}
-
-	upgraded, err := readUpgradeResponse(conn)
-	if err != nil {
-		f.printf("Failed to read response from Upgrade: %v", err)
-		conn.Close()
-		return nil, err
-	}
-
-	if upgraded {
-		f.printf("[%s] Successfully upgraded to HTTP/2 (h2c)", req.URL.RequestURI())
-		return f.connPool.getConn(ctx, req.URL.Host, WithConn(conn))
-	}
-
-	conn.Close()
-	f.printf("[%s] Server does not support HTTP/2 Upgrade", req.URL.RequestURI())
-	return nil, errors.New("server does not support HTTP/2 Upgrade")
-}
-
 func dialConn(addr string, useTLS bool) (net.Conn, error) {
 	if useTLS {
 		if !hasPort(addr) {
@@ -148,43 +98,37 @@ func hasPort(host string) bool {
 	return err == nil
 }
 
-func sendUpgradeRequestHTTP1(conn net.Conn, method string, parsedURL *url.URL) error {
-	host := parsedURL.Host
-	path := parsedURL.RequestURI()
+func sendUpgradeRequestHTTP1(conn net.Conn, method string, url *url.URL) error {
+	writer := bufio.NewWriter(conn)
+	requestLine := fmt.Sprintf("%s %s HTTP/1.1\r\n", method, url.RequestURI())
+	if _, err := writer.WriteString(requestLine); err != nil {
+		return err
+	}
+	hostHeader := fmt.Sprintf("Host: %s\r\n", url.Host)
+	if _, err := writer.WriteString(hostHeader); err != nil {
+		return err
+	}
+	connectionHeader := "Connection: Upgrade, HTTP2-Settings\r\n"
+	if _, err := writer.WriteString(connectionHeader); err != nil {
+		return err
+	}
+	upgradeHeader := "Upgrade: h2c\r\n"
+	if _, err := writer.WriteString(upgradeHeader); err != nil {
+		return err
+	}
 
-	// Generate HTTP2-Settings header value with specific SETTINGS frame (base64 encoded)
 	settingPayload := []byte{
-		// SETTINGS payload:
 		0x00, 0x03, 0x00, 0x00, 0x00, 0x64, // SETTINGS_MAX_CONCURRENT_STREAMS = 100
 	}
 	http2Settings := base64.StdEncoding.EncodeToString(settingPayload)
-
-	log.Println("< Sent HTTP/1.1 Upgrade request")
-	// Create HTTP/1.1 Upgrade request
-	request := fmt.Sprintf(
-		"%s %s HTTP/1.1\r\n"+
-			"Host: %s\r\n"+
-			"User-Agent: curl/8.7.1\r\n"+
-			"Accept: */*\r\n"+
-			"Connection: Upgrade, HTTP2-Settings\r\n"+
-			"Upgrade: h2c\r\n"+
-			"HTTP2-Settings: %s\r\n\r\n",
-		method, path, host, http2Settings)
-
-	//request := fmt.Sprintf(
-	//	"OPTIONS * HTTP/1.1\r\n"+
-	//		"Host: %s\r\n"+
-	//		"Connection: Upgrade, HTTP2-Settings\r\n"+
-	//		"Upgrade: h2c\r\n"+
-	//		"HTTP2-Settings: %s\r\n"+
-	//		"\r\n",
-	//	host, http2Settings)
-
-	log.Printf("%s\n", request)
-	if _, err := conn.Write([]byte(request)); err != nil {
+	http2SettingsHeader := fmt.Sprintf("HTTP2-Settings: %s\r\n", http2Settings)
+	if _, err := writer.WriteString(http2SettingsHeader); err != nil {
 		return err
 	}
-	return nil
+	if _, err := writer.WriteString("\r\n"); err != nil {
+		return err
+	}
+	return writer.Flush()
 }
 
 func readUpgradeResponse(conn net.Conn) (bool, error) {
@@ -199,7 +143,6 @@ func readUpgradeResponse(conn net.Conn) (bool, error) {
 		return false, nil
 	}
 
-	// Read headers until an empty line
 	for {
 		line, er := reader.ReadString('\n')
 		if er != nil {

@@ -18,7 +18,6 @@ func (f *fetcher) doHTTP1(ctx context.Context, req *http.Request) (*http.Respons
 	if err != nil {
 		return nil, err
 	}
-	defer conn.Close()
 
 	reader := bufio.NewReader(conn)
 	writer := bufio.NewWriter(conn)
@@ -54,7 +53,6 @@ func (f *fetcher) doHTTP1(ctx context.Context, req *http.Request) (*http.Respons
 		if err != nil {
 			return nil, err
 		}
-
 		req.Body.Close()
 	}
 
