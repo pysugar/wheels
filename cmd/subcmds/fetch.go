@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"encoding/binary"
 	"fmt"
+	"github.com/pysugar/wheels/http/client"
 	"io"
 	"log"
 	"net"
@@ -21,18 +22,6 @@ import (
 	"github.com/spf13/cobra"
 	"golang.org/x/net/http2/hpack"
 	pb "google.golang.org/grpc/health/grpc_health_v1"
-)
-
-type (
-	fetcher struct {
-		userAgent string
-		method    string
-		grpc      bool
-	}
-
-	grpcFetcher struct {
-		client http2client.GRPCClient
-	}
 )
 
 var (
@@ -61,6 +50,8 @@ call grpc via context path: netool fetch --grpc http://localhost:8080/grpc/grpc.
 				log.Printf("invalid url %s\n", args[0])
 				return
 			}
+
+			fetcher := client.NewFetcher()
 
 			if isGRPC {
 				grpcClient, err := http2client.NewGRPCClient(targetURL)
@@ -201,6 +192,7 @@ func init() {
 	fetchCmd.Flags().StringP("user-agent", "A", "", "User Agent")
 	fetchCmd.Flags().StringP("method", "M", "GET", "HTTP Method")
 	fetchCmd.Flags().BoolP("grpc", "G", false, "Is GRPC Request Or Not")
+	fetchCmd.Flags().BoolP("http2", "H", false, "Is GRPC Request Or Not")
 	base.AddSubCommands(fetchCmd)
 }
 

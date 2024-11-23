@@ -2,11 +2,14 @@ package client
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"crypto/tls"
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"google.golang.org/protobuf/proto"
+	"io"
 	"log"
 	"net"
 	"net/http"
@@ -21,6 +24,7 @@ type (
 
 	Fetcher interface {
 		Do(context.Context, *http.Request) (*http.Response, error)
+		CallGRPC(ctx context.Context, serviceURL *url.URL, req, res proto.Message) error
 		Close() error
 	}
 
@@ -62,6 +66,44 @@ func (f *fetcher) Do(ctx context.Context, req *http.Request) (*http.Response, er
 		return f.doTLS(ctx, req)
 	}
 	return f.doHTTP(ctx, req)
+}
+
+func (f *fetcher) CallGRPC(ctx context.Context, serviceURL *url.URL, req, res proto.Message) error {
+	reqBytes, err := proto.Marshal(req)
+	if err != nil {
+		return err
+	}
+	httpReq, err := http.NewRequestWithContext(ctx, "POST", serviceURL.String(), bytes.NewReader(EncodeGrpcPayload(reqBytes)))
+	if err != nil {
+		return err
+	}
+
+	httpReq.Header.Set("content-type", "application/grpc")
+	httpReq.Header.Set("te", "trailers")
+	httpReq.Header.Set("grpc-encoding", "identity")
+	httpReq.Header.Set("grpc-accept-encoding", "identity")
+
+	logger := newVerboseLogger(ctx)
+	logger.Printf("request: %+v", httpReq)
+	httpRes, err := f.Do(ctx, httpReq)
+	if err != nil {
+		return err
+	}
+	logger.Printf("response: %+v", httpRes)
+
+	resBodyBytes, err := io.ReadAll(httpRes.Body)
+	if err != nil {
+		return err
+	}
+	resBytes, err := DecodeGrpcPayload(resBodyBytes)
+	if err != nil {
+		return err
+	}
+	err = proto.Unmarshal(resBytes, res)
+	if err != nil {
+		return err
+	}
+	return nil
 }
 
 func (f *fetcher) Close() error {

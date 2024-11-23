@@ -1,7 +1,6 @@
 package client
 
 import (
-	"bytes"
 	"context"
 	"io"
 	"net/http"
@@ -10,7 +9,6 @@ import (
 	"time"
 
 	grpchealthv1 "google.golang.org/grpc/health/grpc_health_v1"
-	"google.golang.org/protobuf/proto"
 )
 
 func TestFetcher_Do(t *testing.T) {
@@ -36,45 +34,16 @@ func TestFetcher_H2C_GRPC(t *testing.T) {
 
 	req := &grpchealthv1.HealthCheckRequest{}
 	res := &grpchealthv1.HealthCheckResponse{}
-	reqBytes, err := proto.Marshal(req)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	httpReq, err := http.NewRequestWithContext(ctx, "POST", serverURL.String(), bytes.NewReader(EncodeGrpcPayload(reqBytes)))
-	if err != nil {
-		t.Fatal(err)
-	}
-	httpReq.Header.Set("content-type", "application/grpc")
-	httpReq.Header.Set("te", "trailers")
-	httpReq.Header.Set("grpc-encoding", "identity")
-	httpReq.Header.Set("grpc-accept-encoding", "identity")
 
 	cp := newConnPool()
 	f := &fetcher{
 		connPool: cp,
 	}
 
-	httpRes, err := f.Do(ctx, httpReq)
+	err := f.CallGRPC(ctx, serverURL, req, res)
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Logf("%v", httpRes)
-
-	resOriginBytes, err := io.ReadAll(httpRes.Body)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	resBytes, err := DecodeGrpcPayload(resOriginBytes)
-	if err != nil {
-		t.Fatalf("resBytes: %s, error: %v", resBytes, err)
-	}
-	err = proto.Unmarshal(resBytes, res)
-	if err != nil {
-		t.Fatal(err)
-	}
-
 	t.Logf("res: %+v, err: %v", res, err)
 }
 
