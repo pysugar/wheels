@@ -69,11 +69,13 @@ func (f *fetcher) Do(ctx context.Context, req *http.Request) (*http.Response, er
 }
 
 func (f *fetcher) CallGRPC(ctx context.Context, serviceURL *url.URL, req, res proto.Message) error {
+	ctx = WithProtocol(ctx, HTTP2)
 	reqBytes, err := proto.Marshal(req)
 	if err != nil {
 		return err
 	}
-	httpReq, err := http.NewRequestWithContext(ctx, "POST", serviceURL.String(), bytes.NewReader(EncodeGrpcPayload(reqBytes)))
+	reqBodyBytes := EncodeGrpcPayload(reqBytes)
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, serviceURL.String(), bytes.NewReader(reqBodyBytes))
 	if err != nil {
 		return err
 	}
