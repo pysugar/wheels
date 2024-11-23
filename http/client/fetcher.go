@@ -58,24 +58,34 @@ func (f *fetcher) doTLS(ctx context.Context, req *http.Request) (*http.Response,
 		return nil, err
 	}
 
-	if c, ok := conn.(*tls.Conn); ok {
-		state := c.ConnectionState()
-		fmt.Printf("NegotiatedProtocol: %s\n", state.NegotiatedProtocol)
-		if state.NegotiatedProtocol == "h2" {
-			if _, er := conn.Write(clientPreface); er != nil {
-				return nil, er
-			}
-
-			cc, e := f.connPool.getConn(ctx, req.URL.Host, WithConn(conn))
-			if e == nil {
-				f.printf("[%s] Connect using NegotiatedProtocol", req.URL.RequestURI())
-				return cc.do(ctx, req)
-			}
-			f.printf("[%s] Failed to connect using NegotiatedProtocol: %v", req.URL.RequestURI(), err)
-		}
+	tlsConn, ok := conn.(*tls.Conn)
+	if !ok {
+		return nil, fmt.Errorf("expected *tls.Conn, got %T", conn)
 	}
 
-	return nil, nil
+	res, err := f.doHTTP2WithTLS(ctx, tlsConn, req)
+	if !errors.Is(err, ErrHTTP2Unsupported) {
+		return res, err
+	}
+	return f.doHTTP1WithConn(ctx, req, conn)
+}
+
+func (f *fetcher) doHTTP2WithTLS(ctx context.Context, tlsConn *tls.Conn, req *http.Request) (*http.Response, error) {
+	state := tlsConn.ConnectionState()
+	f.printf("NegotiatedProtocol: %s\n", state.NegotiatedProtocol)
+
+	if state.NegotiatedProtocol == "h2" {
+		if _, err := tlsConn.Write(clientPreface); err != nil {
+			return nil, err
+		}
+		cc, err := f.connPool.getConn(ctx, req.URL.Host, WithConn(tlsConn))
+		if err == nil {
+			f.printf("[%s] Connect using NegotiatedProtocol", req.URL.RequestURI())
+			return cc.do(ctx, req)
+		}
+		f.printf("[%s] Failed to connect using NegotiatedProtocol: %v", req.URL.RequestURI(), err)
+	}
+	return nil, ErrHTTP2Unsupported
 }
 
 func dialConn(addr string, useTLS bool) (net.Conn, error) {

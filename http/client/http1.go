@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"strconv"
 	"strings"
@@ -29,17 +30,23 @@ func (f *fetcher) doHTTP1(ctx context.Context, req *http.Request) (*http.Respons
 	}
 	req.Header.Set("Connection", "close")
 
-	err = req.Write(conn)
-	if err != nil {
-		return nil, err
+	return f.doHTTP1WithConn(ctx, req, conn)
+}
+
+func (f *fetcher) doHTTP1WithConn(ctx context.Context, req *http.Request, conn net.Conn) (*http.Response, error) {
+	writer := bufio.NewWriter(conn)
+	if err := req.Write(writer); err != nil {
+		return nil, fmt.Errorf("failed to write HTTP/1.1 request: %w", err)
+	}
+	if err := writer.Flush(); err != nil {
+		return nil, fmt.Errorf("failed to flush HTTP/1.1 request: %w", err)
 	}
 
 	reader := bufio.NewReader(conn)
 	resp, err := http.ReadResponse(reader, req)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to read HTTP/1.1 response: %w", err)
 	}
-
 	return resp, nil
 }
 
