@@ -44,7 +44,7 @@ func (cp *connPool) getConn(ctx context.Context, target string, opts ...DialOpti
 			return cc, nil
 		}
 		fmt.Printf("[connPool] get conn fail from cache, target: %s\n", target)
-		cc.Close()
+		// cc.Close()
 	}
 
 	v, err, shared := cp.g.Do(target, func() (interface{}, error) {

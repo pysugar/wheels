@@ -124,13 +124,13 @@ func callHealthCheck(t *testing.T, cc *clientConn, url *url.URL) {
 		t.Fatal(err)
 	}
 
-	t.Logf("%s %s", httpRes.Status, httpRes.Proto)
-	for n, v := range httpRes.Header {
-		t.Logf("Header %s: %v", n, v)
-	}
-	for n, v := range httpRes.Trailer {
-		t.Logf("Trailer %s: %v", n, v)
-	}
+	//t.Logf("%s %s", httpRes.Status, httpRes.Proto)
+	//for n, v := range httpRes.Header {
+	//	t.Logf("Header %s: %v", n, v)
+	//}
+	//for n, v := range httpRes.Trailer {
+	//	t.Logf("Trailer %s: %v", n, v)
+	//}
 
 	resOriginBytes, err := io.ReadAll(httpRes.Body)
 	if err != nil {
@@ -146,5 +146,5 @@ func callHealthCheck(t *testing.T, cc *clientConn, url *url.URL) {
 		t.Fatal(err)
 	}
 
-	t.Logf("res: %+v, err: %v", res, err)
+	//t.Logf("res: %+v, err: %v", res, err)
 }

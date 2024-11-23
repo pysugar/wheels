@@ -297,11 +297,13 @@ func (c *clientConn) isValid(ctx context.Context) bool {
 
 	req := make(chan uint64, 1)
 	reqKey := c.nextRequestKeyLocked()
-	c.pingRequests[reqKey] = req
-
 	if len(c.pingRequests) > 0 {
+		c.pingRequests[reqKey] = req
 		c.mu.Unlock()
 	} else {
+		c.pingRequests[reqKey] = req
+		c.mu.Unlock()
+
 		var data [8]byte
 		binary.BigEndian.PutUint64(data[:], reqKey)
 		errCh := make(chan error)
@@ -309,10 +311,7 @@ func (c *clientConn) isValid(ctx context.Context) bool {
 			err := c.framer.WritePing(false, data)
 			errCh <- err
 		})
-
 		err := <-errCh
-		c.mu.Unlock()
-
 		if err != nil {
 			c.mu.Lock()
 			c.closed = true
@@ -321,7 +320,6 @@ func (c *clientConn) isValid(ctx context.Context) bool {
 			log.Printf("clientConn is invalid, write ping timeout, target: %s\n", c.target)
 			return false
 		}
-
 	}
 
 	waitStart := time.Now()
@@ -333,11 +331,10 @@ func (c *clientConn) isValid(ctx context.Context) bool {
 
 	select {
 	case ret, ok := <-req:
-		c.verbose("[clientConn] ping acked: %v, target: %s, key: %d, cost: %dμs", ok, c.target, ret,
-			time.Since(waitStart).Microseconds())
+		log.Printf("[clientConn] ping acked: %v, target: %s, req: %d, ack: %d, cost: %dμs", ok, c.target,
+			reqKey, ret, time.Since(waitStart).Microseconds())
 		if !ok {
-			// client closed
-			return false
+			c.verbose("[clientConn] ping acked ignored closed, target: %s\n", c.target)
 		}
 		return true
 	case <-ctx.Done():
@@ -390,12 +387,13 @@ func (c *clientConn) putPingAckLocked(ackKey uint64) bool {
 	waitingLen := len(c.pingRequests)
 	if n := waitingLen; n > 0 {
 		for reqKey, req := range c.pingRequests {
-			//if reqKey > ackKey {
-			c.verbose("[clientConn] receive ping ack, ack key: %d, req key %d, waiting count: %d",
-				ackKey, reqKey, waitingLen)
-			delete(c.pingRequests, reqKey) // Remove from pending requests.
-			req <- reqKey
-			//}
+			if reqKey >= ackKey {
+				c.verbose("[clientConn] receive ping ack, ack key: %d, req key %d, waiting count: %d",
+					ackKey, reqKey, waitingLen)
+				req <- ackKey
+				delete(c.pingRequests, reqKey) // Remove from pending requests.
+				close(req)
+			}
 		}
 		return true
 	}

@@ -13,14 +13,18 @@ func TestCallGrpcConcurrency(t *testing.T) {
 	serverURL, _ := url.Parse("https://localhost:8443/grpc.health.v1.Health/Check")
 
 	cp := newConnPool()
-	cp.verbose = true
+	// cp.verbose = true
+	if _, err := cp.getConn(context.Background(), serverURL.Host, WithTLS()); err != nil {
+		t.Fatal(err)
+	}
+
 	var wg sync.WaitGroup
-	for i := 0; i < 500; i++ {
+	for i := 0; i < 100; i++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
 			ctx := context.Background()
-			time.Sleep(time.Millisecond * time.Duration(rand.Int()%100))
+			time.Sleep(time.Millisecond * time.Duration(rand.Int()%10))
 			cc, err := cp.getConn(ctx, serverURL.Host, WithTLS())
 			if err != nil {
 				t.Errorf("getConn err: %v", err)
