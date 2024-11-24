@@ -4,18 +4,31 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 )
 
 func (f *fetcher) doHTTP2(ctx context.Context, req *http.Request) (*http.Response, error) {
 	logger := newVerboseLogger(ctx)
+	var netOpErr *net.OpError
+
 	cc, err := f.tryHTTP2Direct(ctx, req)
+	if errors.As(err, &netOpErr) {
+		logger.Printf("[%s] try http2 direct failure: %v", req.URL.RequestURI(), netOpErr)
+		return nil, netOpErr
+	}
+
 	if err == nil && cc != nil {
 		logger.Printf("try http2 direct success: %v", req.URL.RequestURI())
 		return cc.do(ctx, req)
 	}
 
 	cc, err = f.tryHTTP2Upgrade(ctx, req)
+	if errors.As(err, &netOpErr) {
+		logger.Printf("[%s] try http2 upgrade failure: %v", req.URL.RequestURI(), netOpErr)
+		return nil, netOpErr
+	}
+
 	if err == nil && cc != nil {
 		logger.Printf("try http2 upgrade success: %v", req.URL.RequestURI())
 		return cc.do(ctx, req)

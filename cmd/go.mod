@@ -11,6 +11,7 @@ replace (
 
 require (
 	github.com/golang/protobuf v1.5.4
+	github.com/jhump/protoreflect v1.17.0
 	github.com/pysugar/wheels v0.0.0-00010101000000-000000000000
 	github.com/pysugar/wheels/examples v0.0.0-00010101000000-000000000000
 	github.com/spf13/cobra v1.8.1
@@ -22,6 +23,7 @@ require (
 )
 
 require (
+	github.com/bufbuild/protocompile v0.14.1 // indirect
 	github.com/coreos/go-semver v0.3.0 // indirect
 	github.com/coreos/go-systemd/v22 v22.3.2 // indirect
 	github.com/gogo/protobuf v1.3.2 // indirect

@@ -27,19 +27,23 @@ func TestFetcher_Do(t *testing.T) {
 
 func TestFetcher_H2C_GRPC(t *testing.T) {
 	// serverURL, _ := url.Parse("http://localhost:8080/grpc/grpc.health.v1.Health/Check")
-	serverURL, _ := url.Parse("http://127.0.0.1:50051/grpc.health.v1.Health/Check")
+	// serverURL, _ := url.Parse("http://127.0.0.1:50051/grpc.health.v1.Health/Check")
+	serverURL, _ := url.Parse("https://127.0.0.1:8443/grpc.health.v1.Health/Check")
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	req := &grpchealthv1.HealthCheckRequest{}
+	req := &grpchealthv1.HealthCheckRequest{
+		Service: "hello",
+	}
 	res := &grpchealthv1.HealthCheckResponse{}
 
-	cp := newConnPool()
 	f := &fetcher{
-		connPool: cp,
+		connPool: newConnPool(),
 	}
 
+	ctx = WithProtocol(ctx, HTTP2)
+	ctx = WithVerbose(ctx)
 	err := f.CallGRPC(ctx, serverURL, req, res)
 	if err != nil {
 		t.Fatal(err)

@@ -8,12 +8,15 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	codes "google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
 	"io"
 	"log"
 	"net"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 )
 
@@ -84,7 +87,7 @@ func (f *fetcher) CallGRPC(ctx context.Context, serviceURL *url.URL, req, res pr
 	httpReq.Header.Set("te", "trailers")
 	httpReq.Header.Set("grpc-encoding", "identity")
 	httpReq.Header.Set("grpc-accept-encoding", "identity")
-	
+
 	logger := newVerboseLogger(ctx)
 	logger.Printf("request: %+v", httpReq)
 	httpRes, err := f.Do(ctx, httpReq)
@@ -92,6 +95,19 @@ func (f *fetcher) CallGRPC(ctx context.Context, serviceURL *url.URL, req, res pr
 		return err
 	}
 	logger.Printf("response: %+v", httpRes)
+
+	grpcStatus := 0
+	grpcMessage := ""
+	if v := httpRes.Trailer.Get("grpc-status"); v != "" {
+		grpcStatus, _ = strconv.Atoi(v)
+	}
+	if v := httpRes.Trailer.Get("grpc-message"); v != "" {
+		grpcMessage = v
+	}
+	st := status.New(codes.Code(grpcStatus), grpcMessage)
+	if st.Err() != nil {
+		return st.Err()
+	}
 
 	resBodyBytes, err := io.ReadAll(httpRes.Body)
 	if err != nil {
