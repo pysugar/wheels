@@ -8,4 +8,5 @@ func init() {
 	base.AddSubCommands(registryCmd)
 	base.AddSubCommands(discoveryCmd)
 	base.AddSubCommands(devtoolCmd)
+	base.AddSubCommands(echoServiceCmd)
 }

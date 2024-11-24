@@ -10,7 +10,9 @@ Usage:
 
 Available Commands:
   completion  Generate the autocompletion script for the specified shell
+  devtool     Start a DevTool for HTTP
   discovery   Discovery Service from NamingService
+  echoservice Start a gRPC echo service
   fetch       fetch http2 response from url
   fileserver  Start a File Server
   grpc        call grpc service
@@ -30,22 +32,24 @@ Flags:
 
 Use "netool [command] --help" for more information about a command.
 
-$  netool help fetch                                                                                                                                              
+$ netool help fetch                                                                                                                                              
 fetch http2 response from url
 
 fetch http2 response from url: netool fetch https://www.google.com
 call grpc service: netool fetch --grpc https://localhost:8443/grpc.health.v1.Health/Check
 call grpc via context path: netool fetch --grpc http://localhost:8080/grpc/grpc.health.v1.Health/Check
+call grpc service: netool fetch --grpc https://localhost:8443/grpc.health.v1.Health/Check --proto-path=health.proto -d'{"service": "echoservice"}'
 
 Usage:
   netool fetch https://www.google.com [flags]
 
 Flags:
-  -d, --data string         request data
+  -d, --data string         request data (default "{}")
   -G, --grpc                Is GRPC Request Or Not
   -h, --help                help for fetch
   -H, --http2               Is HTTP2 Request Or Not
   -M, --method string       HTTP Method (default "GET")
+  -P, --proto-path string   Proto Path
   -A, --user-agent string   User Agent
   -V, --verbose             Verbose mode
 
@@ -67,5 +71,13 @@ Flags:
   -h, --help                  help for grpc
   -i, --insecure              Skip server certificate and domain verification (skip TLS)
   -p, --plaintext             Use plain-text HTTP/2 when connecting to server (no TLS)
+  
+  
+$ netool echoservice --port=50051
+
+$ ./netool fetch --grpc http://localhost:50051/proto.EchoService/Echo \
+  --proto-path=echo.proto -d'{"message": "netool"}'
+$ ./netool fetch --grpc http://localhost:50051/grpc.health.v1.Health/Check \
+  --proto-path=health.proto -d'{"service": "echoservice"}'
 ```
 
