@@ -84,7 +84,7 @@ func (f *fetcher) CallGRPC(ctx context.Context, serviceURL *url.URL, req, res pr
 	httpReq.Header.Set("te", "trailers")
 	httpReq.Header.Set("grpc-encoding", "identity")
 	httpReq.Header.Set("grpc-accept-encoding", "identity")
-
+	
 	logger := newVerboseLogger(ctx)
 	logger.Printf("request: %+v", httpReq)
 	httpRes, err := f.Do(ctx, httpReq)

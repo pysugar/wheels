@@ -29,5 +29,43 @@ Flags:
   -h, --help   help for netool
 
 Use "netool [command] --help" for more information about a command.
+
+$  netool help fetch                                                                                                                                              
+fetch http2 response from url
+
+fetch http2 response from url: netool fetch https://www.google.com
+call grpc service: netool fetch --grpc https://localhost:8443/grpc.health.v1.Health/Check
+call grpc via context path: netool fetch --grpc http://localhost:8080/grpc/grpc.health.v1.Health/Check
+
+Usage:
+  netool fetch https://www.google.com [flags]
+
+Flags:
+  -d, --data string         request data
+  -G, --grpc                Is GRPC Request Or Not
+  -h, --help                help for fetch
+  -H, --http2               Is HTTP2 Request Or Not
+  -M, --method string       HTTP Method (default "GET")
+  -A, --user-agent string   User Agent
+  -V, --verbose             Verbose mode
+
+$ netool help grpc                                                                                                                                              
+call grpc service
+
+Send an empty request:                     netool grpc grpc.server.com:443 my.custom.server.Service/Method
+Send a request with a header and a body:   netool grpc -H "Authorization: Bearer $token" -d '{"foo": "bar"}' grpc.server.com:443 my.custom.server.Service/Method
+List all services exposed by a server:     netool grpc grpc.server.com:443 list
+List all methods in a particular service:  netool grpc grpc.server.com:443 list my.custom.server.Service
+
+Usage:
+  netool grpc -d '{}' 127.0.0.1:50051 grpc.health.v1.Health/Check [flags]
+
+Flags:
+  -c, --context-path string   context path
+  -d, --data string           request data (default "{}")
+  -H, --header stringArray    Extra header to include in information sent
+  -h, --help                  help for grpc
+  -i, --insecure              Skip server certificate and domain verification (skip TLS)
+  -p, --plaintext             Use plain-text HTTP/2 when connecting to server (no TLS)
 ```
 
