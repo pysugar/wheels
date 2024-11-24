@@ -75,9 +75,9 @@ Flags:
   
 $ netool echoservice --port=50051
 
-$ ./netool fetch --grpc http://localhost:50051/proto.EchoService/Echo \
+$ netool fetch --grpc http://localhost:50051/proto.EchoService/Echo \
   --proto-path=echo.proto -d'{"message": "netool"}'
-$ ./netool fetch --grpc http://localhost:50051/grpc.health.v1.Health/Check \
+$ netool fetch --grpc http://localhost:50051/grpc.health.v1.Health/Check \
   --proto-path=health.proto -d'{"service": "echoservice"}'
 ```
 
