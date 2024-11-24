@@ -7,4 +7,5 @@ func init() {
 	base.AddSubCommands(httpProxyCmd)
 	base.AddSubCommands(registryCmd)
 	base.AddSubCommands(discoveryCmd)
+	base.AddSubCommands(devtoolCmd)
 }
