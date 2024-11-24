@@ -3,12 +3,15 @@ package subcmds
 import (
 	"context"
 	"fmt"
+	"github.com/pysugar/wheels/http/extensions"
 	"io"
 	"log"
 	"net/http"
+	"net/http/httptrace"
 	"net/url"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 
 	"github.com/jhump/protoreflect/desc/protoparse"
 	"github.com/pysugar/wheels/cmd/base"
@@ -21,6 +24,8 @@ import (
 )
 
 var (
+	traceIdGen uint32
+
 	fetchCmd = &cobra.Command{
 		Use:   `fetch https://www.google.com`,
 		Short: "fetch http2 response from url",
@@ -53,6 +58,8 @@ call grpc service: netool fetch --grpc https://localhost:8443/grpc.health.v1.Hea
 			isVerbose, _ := cmd.Flags().GetBool("verbose")
 			if isVerbose {
 				ctx = client.WithVerbose(ctx)
+				ctx = httptrace.WithClientTrace(ctx, extensions.NewDebugClientTrace(fmt.Sprintf("req-%03d",
+					atomic.AddUint32(&traceIdGen, 1))))
 			}
 
 			fetcher := client.NewFetcher()

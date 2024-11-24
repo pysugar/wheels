@@ -1,0 +1,28 @@
+### GET request to debug server
+GET http://localhost:8080/anypath?generated-in=GoLand
+
+### Send POST Request
+# curl -X POST http://localhost:8080/submit -d "Hello, World!" -H "Content-Type: text/plain"
+POST http://localhost:8080/submit
+Content-Type: text/plain
+
+Hello, World!
+
+### 发送带有自定义头部和 JSON 数据的请求
+# curl -X POST http://localhost:8080/api/data
+#    -H "Content-Type: application/json"
+#    -H "X-Custom-Header: CustomValue"
+#    -d '{"name":"ChatGPT","type":"AI"}'
+POST http://localhost:8080/api/data
+X-Custom-Header: CustomValue
+Content-Type: application/json
+
+{
+  "name": "ChatGPT",
+  "type": "AI"
+}
+
+
+
+
+

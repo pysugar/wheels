@@ -90,6 +90,7 @@ func (f *fetcher) CallGRPC(ctx context.Context, serviceURL *url.URL, req, res pr
 
 	logger := newVerboseLogger(ctx)
 	logger.Printf("request: %+v", httpReq)
+
 	httpRes, err := f.Do(ctx, httpReq)
 	if err != nil {
 		return err
