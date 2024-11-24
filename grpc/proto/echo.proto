@@ -1,0 +1,16 @@
+syntax = "proto3";
+
+package proto;
+option go_package = "github.com/pysugar/wheels/grpc/proto";
+
+service EchoService {
+  rpc Echo (EchoRequest) returns (EchoResponse) {}
+}
+
+message EchoRequest {
+  string message = 1;
+}
+
+message EchoResponse {
+  string message = 1;
+}
