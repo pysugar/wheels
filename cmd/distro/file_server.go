@@ -52,7 +52,7 @@ func RunFileServer(sharedDirectory string, port int, verbose bool) {
 		addrs = []string{"0.0.0.0"}
 	}
 
-	fmt.Printf("fileserver is running,\n\tdirectory:\t%s \n\taddress:\thttp://<%s>:%d\n", absPath, addrs[0], port)
+	fmt.Printf("fileserver is running,\n\tdirectory:\t%s \n\taddress:\thttp://%s:%d\n", absPath, addrs[0], port)
 	if er := http.ListenAndServe(fmt.Sprintf(":%d", port), nil); er != nil {
 		fmt.Printf("server start server: %s\n", er)
 	}
