@@ -24,11 +24,17 @@ jobs:
         env:
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: 0
         working-directory: ./cmd
         run: |
-          go build -v -o ./netool-${{ matrix.goos }}-${{ matrix.goarch }} ./main
-          tar -czvf netool-${{ matrix.goos }}-${{ matrix.goarch }}.tar.gz netool-${{ matrix.goos }}-${{ matrix.goarch }}
-          rm netool-${{ matrix.goos }}-${{ matrix.goarch }}      
+          if [ "$GOOS" = "windows" ]; then
+            executable_name="netool.exe"
+          else
+            executable_name="netool"
+          fi
+          go build -v -o $executable_name ./main
+          tar -czvf netool-${{ matrix.goos }}-${{ matrix.goarch }}.tar.gz $executable_name
+          rm $executable_name
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -69,22 +75,3 @@ jobs:
           prerelease: false
           artifacts: ./artifacts/*
           token: ${{ secrets.GITHUB_TOKEN }}
-
-#      - name: Create Release
-#        id: create_release
-#        uses: actions/create-release@v1
-#        env:
-#          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-#        with:
-#          tag_name: ${{ github.ref }}
-#          release_name: Release ${{ github.ref }}
-#          draft: false
-#          prerelease: false
-#
-#      - name: Upload Release Assets
-#        uses: softprops/action-gh-release@v1
-#        with:
-#          tag_name: ${{ github.ref_name }}
-#          files: ./artifacts/*
-#        env:
-#          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
