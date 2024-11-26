@@ -9,12 +9,12 @@ import (
 var (
 	Version_x byte = 0
 	Version_y byte = 1
-	Version_z byte = 8
+	Version_z byte = 9
 )
 
 var (
 	build    = "Custom"
-	codename = "Netool, Penetrates Everything."
+	codename = "Netool, Swiss Army Knife by Go."
 	intro    = "Net tools for everything."
 )
 
