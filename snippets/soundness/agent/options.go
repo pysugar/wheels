@@ -7,6 +7,7 @@ type options struct {
 	heartbeatPath     string
 	collectPath       string
 	statusFile        string
+	customHeaders     map[string]string
 }
 
 type Option func(*options)
@@ -19,6 +20,12 @@ var (
 		statusFile:        "/tmp/status.json",
 	}
 )
+
+func WithCustomHeaders(headers map[string]string) Option {
+	return func(o *options) {
+		o.customHeaders = headers
+	}
+}
 
 func WithHeartbeatPath(path string) Option {
 	return func(o *options) {

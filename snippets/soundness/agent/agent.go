@@ -3,6 +3,7 @@ package agent
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"io"
 	"log"
 	"net/http"
@@ -26,6 +27,7 @@ type (
 		heartbeatUrl      string
 		collectorUrl      string
 		statusFile        string
+		customHeaders     map[string]string
 		fileLock          sync.Mutex
 	}
 )
@@ -47,6 +49,7 @@ func NewAgent(brokerURL *url.URL, opts ...Option) Agent {
 		heartbeatUrl:      heartbeatUrl,
 		collectorUrl:      collectorUrl,
 		statusFile:        o.statusFile,
+		customHeaders:     o.customHeaders,
 	}
 }
 
@@ -137,6 +140,9 @@ func (o *agent) loadAndSendJSON(ctx context.Context) {
 		return
 	}
 	req.Header.Set("Content-Type", "application/json")
+	for k, v := range o.customHeaders {
+		req.Header.Set(k, v)
+	}
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
@@ -145,7 +151,8 @@ func (o *agent) loadAndSendJSON(ctx context.Context) {
 	}
 	defer resp.Body.Close()
 
-	log.Printf("Data send success, status: %v", resp.StatusCode)
+	fmt.Printf("%+v\n", resp)
+	log.Printf("Data send success, status: %v", resp.Status)
 }
 
 func (o *agent) sendHeartbeat(ctx context.Context) {
