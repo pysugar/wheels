@@ -57,9 +57,7 @@ func (o *agent) Start(ctx context.Context) error {
 	}
 	defer watcher.Close()
 
-	if err := watcher.Add(o.statusFile); err != nil {
-		return err
-	}
+	go o.watchStatusFile(watcher)
 
 	heartbeatTicker := time.NewTicker(o.heartbeatInterval)
 	defer heartbeatTicker.Stop()
@@ -74,7 +72,10 @@ func (o *agent) Start(ctx context.Context) error {
 			if event.Has(fsnotify.Write) {
 				log.Println("modified file:", event.Name)
 				o.waitForCompleteWrite()
-				o.loadAndSendJSON()
+				o.loadAndSendJSON(ctx)
+			} else if event.Has(fsnotify.Remove) {
+				log.Println("removed file:", event.Name)
+				go o.watchStatusFile(watcher)
 			}
 		case err, ok := <-watcher.Errors:
 			if !ok {
@@ -87,7 +88,21 @@ func (o *agent) Start(ctx context.Context) error {
 	}
 }
 
-func (o *agent) loadAndSendJSON() {
+func (o *agent) watchStatusFile(watcher *fsnotify.Watcher) {
+	for {
+		if _, err := os.Stat(o.statusFile); !os.IsNotExist(err) {
+			if err := watcher.Add(o.statusFile); err != nil {
+				log.Printf("Can't add file to watcher: %v", err)
+			} else {
+				log.Printf("Add file to watcher...")
+			}
+			return
+		}
+		time.Sleep(1 * time.Second)
+	}
+}
+
+func (o *agent) loadAndSendJSON(ctx context.Context) {
 	o.fileLock.Lock()
 	defer o.fileLock.Unlock()
 
@@ -104,7 +119,9 @@ func (o *agent) loadAndSendJSON() {
 		return
 	}
 
-	req, err := http.NewRequest("POST", o.collectorUrl, bytes.NewBuffer(byteValue))
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, "POST", o.collectorUrl, bytes.NewBuffer(byteValue))
 	if err != nil {
 		log.Printf("Create request failure: %v", err)
 		return
@@ -128,7 +145,10 @@ func (o *agent) sendHeartbeat(ctx context.Context) {
 	}
 
 	log.Println("Send Heartbeat...")
-	resp, err := http.Get(o.heartbeatUrl)
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, "GET", o.heartbeatUrl, nil)
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		log.Printf("Send Heartbeat Failure: %v", err)
 		return
