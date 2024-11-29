@@ -57,7 +57,7 @@ func (o *agent) Start(ctx context.Context) error {
 	}
 	defer watcher.Close()
 
-	go o.watchStatusFile(watcher)
+	go o.watchStatusFile(ctx, watcher)
 
 	heartbeatTicker := time.NewTicker(o.heartbeatInterval)
 	defer heartbeatTicker.Stop()
@@ -75,7 +75,7 @@ func (o *agent) Start(ctx context.Context) error {
 				o.loadAndSendJSON(ctx)
 			} else if event.Has(fsnotify.Remove) {
 				log.Println("removed file:", event.Name)
-				go o.watchStatusFile(watcher)
+				go o.watchStatusFile(ctx, watcher)
 			}
 		case err, ok := <-watcher.Errors:
 			if !ok {
@@ -84,21 +84,31 @@ func (o *agent) Start(ctx context.Context) error {
 			log.Println("file watch error:", err)
 		case <-heartbeatTicker.C:
 			o.sendHeartbeat(ctx)
+		case <-ctx.Done():
+			log.Println("Context cancelled, shutting down")
+			return nil
 		}
 	}
 }
 
-func (o *agent) watchStatusFile(watcher *fsnotify.Watcher) {
+func (o *agent) watchStatusFile(ctx context.Context, watcher *fsnotify.Watcher) {
+	ticker := time.NewTicker(1 * time.Second)
+	defer ticker.Stop()
 	for {
-		if _, err := os.Stat(o.statusFile); !os.IsNotExist(err) {
-			if err := watcher.Add(o.statusFile); err != nil {
-				log.Printf("Can't add file to watcher: %v", err)
-			} else {
-				log.Printf("Add file to watcher...")
-			}
+		select {
+		case <-ctx.Done():
+			log.Println("Context cancelled, stopping watchStatusFile")
 			return
+		case <-ticker.C:
+			if _, err := os.Stat(o.statusFile); !os.IsNotExist(err) {
+				if err := watcher.Add(o.statusFile); err != nil {
+					log.Printf("Can't add file to watcher: %v", err)
+				} else {
+					log.Printf("Add file to watcher...")
+				}
+				return
+			}
 		}
-		time.Sleep(1 * time.Second)
 	}
 }
 
@@ -148,6 +158,10 @@ func (o *agent) sendHeartbeat(ctx context.Context) {
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, "GET", o.heartbeatUrl, nil)
+	if err != nil {
+		log.Printf("Create request failure: %v", err)
+		return
+	}
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		log.Printf("Send Heartbeat Failure: %v", err)
@@ -167,12 +181,13 @@ func (o *agent) waitForCompleteWrite() {
 
 		file, err := os.Open(o.statusFile)
 		if err == nil {
-			defer file.Close()
 			if er := syscall.Flock(int(file.Fd()), syscall.LOCK_SH); er == nil {
+				file.Close()
 				break
 			} else {
 				log.Printf("syscall.Flock error: %v", er)
 			}
+			file.Close()
 		}
 		time.Sleep(100 * time.Millisecond)
 	}
