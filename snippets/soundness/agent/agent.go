@@ -138,8 +138,7 @@ func (o *agent) loadAndSendJSON(ctx context.Context) {
 	}
 	req.Header.Set("Content-Type", "application/json")
 
-	client := &http.Client{}
-	resp, err := client.Do(req)
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		log.Printf("Send request failure: %v", err)
 		return
