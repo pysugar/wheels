@@ -3,7 +3,6 @@ package agent
 import (
 	"bytes"
 	"context"
-	"fmt"
 	"io"
 	"log"
 	"net/http"
@@ -22,6 +21,7 @@ type (
 	}
 
 	agent struct {
+		agentID           string
 		brokerURL         *url.URL
 		heartbeatInterval time.Duration
 		heartbeatUrl      string
@@ -44,6 +44,7 @@ func NewAgent(brokerURL *url.URL, opts ...Option) Agent {
 	collectorUrl := brokerURL.String()
 
 	return &agent{
+		agentID:           o.agentID,
 		brokerURL:         brokerURL,
 		heartbeatInterval: o.heartbeatInterval,
 		heartbeatUrl:      heartbeatUrl,
@@ -143,6 +144,12 @@ func (o *agent) loadAndSendJSON(ctx context.Context) {
 	for k, v := range o.customHeaders {
 		req.Header.Set(k, v)
 	}
+	if o.agentID != "" {
+		req.Header.Set("X-Resource-Id", o.agentID)
+		query := req.URL.Query()
+		query.Set("name", o.agentID)
+		req.URL.RawQuery = query.Encode()
+	}
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
@@ -151,8 +158,7 @@ func (o *agent) loadAndSendJSON(ctx context.Context) {
 	}
 	defer resp.Body.Close()
 
-	fmt.Printf("%+v\n", resp)
-	log.Printf("Data send success, status: %v", resp.Status)
+	log.Printf("Sync data(%s) success, status: %v", req.URL.RequestURI(), resp.Status)
 }
 
 func (o *agent) sendHeartbeat(ctx context.Context) {
@@ -163,25 +169,36 @@ func (o *agent) sendHeartbeat(ctx context.Context) {
 	log.Println("Send Heartbeat...")
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
-	req, err := http.NewRequestWithContext(ctx, "GET", o.heartbeatUrl, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, o.heartbeatUrl, bytes.NewBuffer([]byte("{}")))
 	if err != nil {
-		log.Printf("Create request failure: %v", err)
+		log.Printf("Create heartbeat request failure: %v", err)
 		return
 	}
+	req.Header.Set("Content-Type", "application/json")
+	for k, v := range o.customHeaders {
+		req.Header.Set(k, v)
+	}
+	if o.agentID != "" {
+		req.Header.Set("X-Resource-Id", o.agentID)
+		query := req.URL.Query()
+		query.Set("name", o.agentID)
+		req.URL.RawQuery = query.Encode()
+	}
+
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		log.Printf("Send Heartbeat Failure: %v", err)
 		return
 	}
 	defer resp.Body.Close()
-	log.Printf("Send Heartbeat Success: %v", resp.StatusCode)
+	log.Printf("Send Heartbeat(%s) Success: %v", req.URL.RequestURI(), resp.StatusCode)
 }
 
 func (o *agent) waitForCompleteWrite() {
 	startTime := time.Now()
 	for {
 		if time.Since(startTime) > maxWaitTime {
-			log.Println("等待文件写入超时")
+			log.Println("write file timeout")
 			return
 		}
 

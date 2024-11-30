@@ -3,6 +3,7 @@ package agent
 import "time"
 
 type options struct {
+	agentID           string
 	heartbeatInterval time.Duration
 	heartbeatPath     string
 	collectPath       string
@@ -20,6 +21,12 @@ var (
 		statusFile:        "/tmp/status.json",
 	}
 )
+
+func WithAgentID(id string) Option {
+	return func(o *options) {
+		o.agentID = id
+	}
+}
 
 func WithCustomHeaders(headers map[string]string) Option {
 	return func(o *options) {
