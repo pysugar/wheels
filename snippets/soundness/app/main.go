@@ -45,6 +45,10 @@ func main() {
 		options = append(options, agent.WithHeartbeatPath(v))
 	}
 
+	if v, ok := os.LookupEnv("FILE_PATH"); ok && v != "" {
+		options = append(options, agent.WithStatusFile(v))
+	}
+
 	srv := agent.NewAgent(brokerURL, options...)
 
 	ctx, cancel := context.WithCancel(context.Background())

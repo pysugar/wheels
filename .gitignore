@@ -31,3 +31,5 @@ go.work
 netool
 
 *.pem
+
+agent
