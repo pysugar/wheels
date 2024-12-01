@@ -109,6 +109,7 @@ func (o *agent) watchStatusFile(ctx context.Context, watcher *fsnotify.Watcher) 
 					log.Printf("Can't add file to watcher: %v", err)
 				} else {
 					log.Printf("Add file to watcher...")
+					o.loadAndSendJSON(ctx)
 				}
 				return
 			}
