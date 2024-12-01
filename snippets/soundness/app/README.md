@@ -4,7 +4,7 @@
 ```bash
 $ GOOS=linux GOARCH=amd64 go build -o agent main.go
 
-$ GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -o agent -ldflags="-s -w -extldflags=-static" main.go
+$ GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -o agent -ldflags="-s -w -extldflags=-static -X main.path=/" main.go
 ```
 
 ### 准备部署文件
