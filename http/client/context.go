@@ -20,6 +20,7 @@ const (
 var (
 	protocolCtxKey = &contextKey{"protocol"}
 	verboseCtxKey  = &contextKey{"verbose"}
+	upgradeCtxKey  = &contextKey{"upgrade"}
 )
 
 func WithProtocol(ctx context.Context, protocol HttpProtocol) context.Context {
@@ -28,6 +29,10 @@ func WithProtocol(ctx context.Context, protocol HttpProtocol) context.Context {
 
 func WithVerbose(ctx context.Context) context.Context {
 	return context.WithValue(ctx, verboseCtxKey, true)
+}
+
+func WithUpgrade(ctx context.Context) context.Context {
+	return context.WithValue(ctx, upgradeCtxKey, true)
 }
 
 func ProtocolFromContext(ctx context.Context) HttpProtocol {
@@ -39,5 +44,10 @@ func ProtocolFromContext(ctx context.Context) HttpProtocol {
 
 func VerboseFromContext(ctx context.Context) bool {
 	_, ok := ctx.Value(verboseCtxKey).(bool)
+	return ok
+}
+
+func UpgradeFromContext(ctx context.Context) bool {
+	_, ok := ctx.Value(upgradeCtxKey).(bool)
 	return ok
 }

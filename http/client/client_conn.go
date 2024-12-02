@@ -90,8 +90,11 @@ func dialContext(ctx context.Context, target string, opts ...DialOption) (cc *cl
 		if err != nil {
 			return nil, err
 		}
+	}
 
-		log.Printf("[%T] Send HTTP/2 Client Preface: %s\n", conn, clientPreface)
+	logger := newVerboseLogger(ctx)
+	if dopts.sendPreface {
+		logger.Printf("[%T] Send HTTP/2 Client Preface: %s\n", conn, clientPreface)
 		if _, er := conn.Write(clientPreface); er != nil {
 			conn.Close()
 			err = er
@@ -121,15 +124,15 @@ func dialContext(ctx context.Context, target string, opts ...DialOption) (cc *cl
 		Val: 100,
 	}); er != nil {
 		cc.Close()
-		log.Printf("[clientConn] write settings failed: %v", er)
+		logger.Printf("[clientConn] write settings failed: %v", er)
 		return nil, er
 	}
-	cc.verbose("[clientConn] client write settings")
+	logger.Println("[clientConn] client write settings")
 	go cc.readLoop(ctx)
 
 	select {
 	case <-cc.settingsAcked:
-		cc.verbose("[clientConn] Settings acknowledged by server")
+		logger.Println("[clientConn] Settings acknowledged by server")
 		cc.maxConcurrentSemaphore = make(chan struct{}, cc.maxConcurrentStreams)
 		return cc, nil
 	case <-time.After(dopts.timeout):
@@ -509,7 +512,7 @@ func (c *clientConn) processHeaderFrame(f *http2.HeadersFrame) error {
 
 	if f.StreamEnded() {
 		for _, hf := range headers {
-			c.verbose("Received trailer (%s: %s)", hf.Name, hf.Value)
+			c.verbose("\t< Received Trailer (%s: %s)", hf.Name, hf.Value)
 			cs.trailers.Add(hf.Name, hf.Value)
 			if hf.Name == ":status" {
 				if statusCode, er := strconv.Atoi(hf.Value); er == nil {
@@ -520,7 +523,7 @@ func (c *clientConn) processHeaderFrame(f *http2.HeadersFrame) error {
 		cs.done()
 	} else {
 		for _, hf := range headers {
-			c.verbose("Received header (%s: %s)", hf.Name, hf.Value)
+			c.verbose("\t< Received Header (%s: %s)", hf.Name, hf.Value)
 			cs.responseHeaders.Add(hf.Name, hf.Value)
 			if hf.Name == ":status" {
 				if statusCode, er := strconv.Atoi(hf.Value); er == nil {
@@ -605,7 +608,7 @@ func (c *clientConn) encodeHpackHeaders(headers []hpack.HeaderField) []byte {
 			log.Printf("failed to encode header field: %v", err)
 			continue
 		}
-		c.verbose("Send Header %s: %s\n", header.Name, header.Value)
+		c.verbose("\t> Send Header %s: %s\n", header.Name, header.Value)
 	}
 	return c.encoderBuf.Bytes()
 }

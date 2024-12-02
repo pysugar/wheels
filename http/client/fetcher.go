@@ -8,9 +8,6 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
-	codes "google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
-	"google.golang.org/protobuf/proto"
 	"io"
 	"log"
 	"net"
@@ -18,13 +15,13 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/proto"
 )
 
 type (
-	VerboseLogger interface {
-		Printf(format string, v ...any)
-	}
-
 	Fetcher interface {
 		Do(context.Context, *http.Request) (*http.Response, error)
 		CallGRPC(ctx context.Context, serviceURL *url.URL, req, res proto.Message) error
@@ -35,23 +32,7 @@ type (
 		userAgent string
 		connPool  *connPool
 	}
-
-	verboseLogger struct {
-		verbose bool
-	}
 )
-
-func newVerboseLogger(ctx context.Context) VerboseLogger {
-	return &verboseLogger{
-		verbose: VerboseFromContext(ctx),
-	}
-}
-
-func (vl *verboseLogger) Printf(format string, v ...any) {
-	if vl.verbose {
-		log.Printf(format, v...)
-	}
-}
 
 var (
 	ErrHTTP2Unsupported = errors.New("unsupported protocol http2")
@@ -178,7 +159,7 @@ func (f *fetcher) doHTTP2WithTLS(ctx context.Context, tlsConn *tls.Conn, req *ht
 		if _, err := tlsConn.Write(clientPreface); err != nil {
 			return nil, err
 		}
-		cc, err := f.connPool.getConn(ctx, req.URL.Host, WithConn(tlsConn))
+		cc, err := f.connPool.getConn(ctx, req.URL.Host, WithConn(tlsConn), DisableSendPreface())
 		if err == nil {
 			logger.Printf("[%s] Connect using NegotiatedProtocol", req.URL.RequestURI())
 			return cc.do(ctx, req)
@@ -208,21 +189,27 @@ func hasPort(host string) bool {
 	return err == nil
 }
 
-func sendUpgradeRequestHTTP1(conn net.Conn, method string, url *url.URL) error {
+func sendUpgradeRequestHTTP1(ctx context.Context, conn net.Conn, method string, url *url.URL) error {
+	logger := newVerboseLogger(ctx)
+
 	writer := bufio.NewWriter(conn)
 	requestLine := fmt.Sprintf("%s %s HTTP/1.1\r\n", method, url.RequestURI())
+	logger.Printf("\t> %s", requestLine)
 	if _, err := writer.WriteString(requestLine); err != nil {
 		return err
 	}
 	hostHeader := fmt.Sprintf("Host: %s\r\n", url.Host)
+	logger.Printf("\t> %s", hostHeader)
 	if _, err := writer.WriteString(hostHeader); err != nil {
 		return err
 	}
 	connectionHeader := "Connection: Upgrade, HTTP2-Settings\r\n"
+	logger.Printf("\t> %s", connectionHeader)
 	if _, err := writer.WriteString(connectionHeader); err != nil {
 		return err
 	}
 	upgradeHeader := "Upgrade: h2c\r\n"
+	logger.Printf("\t> %s", upgradeHeader)
 	if _, err := writer.WriteString(upgradeHeader); err != nil {
 		return err
 	}
@@ -232,22 +219,27 @@ func sendUpgradeRequestHTTP1(conn net.Conn, method string, url *url.URL) error {
 	}
 	http2Settings := base64.StdEncoding.EncodeToString(settingPayload)
 	http2SettingsHeader := fmt.Sprintf("HTTP2-Settings: %s\r\n", http2Settings)
+	logger.Printf("\t> %s", http2SettingsHeader)
 	if _, err := writer.WriteString(http2SettingsHeader); err != nil {
 		return err
 	}
 	if _, err := writer.WriteString("\r\n"); err != nil {
 		return err
 	}
+	logger.Printf("\t> \r\n")
 	return writer.Flush()
 }
 
-func readUpgradeResponse(conn net.Conn) (bool, error) {
+func readUpgradeResponse(ctx context.Context, conn net.Conn) (bool, error) {
+	logger := newVerboseLogger(ctx)
+
 	reader := bufio.NewReader(conn)
 	statusLine, err := reader.ReadString('\n')
 	if err != nil {
 		return false, err
 	}
-	log.Printf("Upgrade Status Line: %s", statusLine)
+
+	logger.Printf("\t< %s", statusLine)
 	if !strings.Contains(statusLine, "101 Switching Protocols") {
 		log.Printf("Fail upgraded to HTTP/2 (h2c) >\n")
 		return false, nil
@@ -258,12 +250,12 @@ func readUpgradeResponse(conn net.Conn) (bool, error) {
 		if er != nil {
 			return false, er
 		}
-		log.Print(line)
+		logger.Printf("\t< %s", line)
 		if strings.TrimSpace(line) == "" {
 			break
 		}
 	}
 
-	log.Printf("Successfully upgraded to HTTP/2 (h2c) >\n")
+	logger.Printf("Successfully upgraded to HTTP/2 (h2c) >\n")
 	return true, nil
 }

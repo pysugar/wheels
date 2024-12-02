@@ -3,7 +3,6 @@ package subcmds
 import (
 	"context"
 	"fmt"
-	"github.com/pysugar/wheels/http/extensions"
 	"io"
 	"log"
 	"net/http"
@@ -16,6 +15,7 @@ import (
 	"github.com/jhump/protoreflect/desc/protoparse"
 	"github.com/pysugar/wheels/cmd/base"
 	"github.com/pysugar/wheels/http/client"
+	"github.com/pysugar/wheels/http/extensions"
 	"github.com/spf13/cobra"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
@@ -100,6 +100,7 @@ call grpc service: netool fetch --grpc https://localhost:8443/grpc.health.v1.Hea
 
 			if isHTTP2 {
 				ctx = client.WithProtocol(ctx, client.HTTP2)
+				ctx = client.WithUpgrade(ctx)
 			}
 
 			data, _ := cmd.Flags().GetString("data")
@@ -128,6 +129,7 @@ func init() {
 	fetchCmd.Flags().BoolP("grpc", "G", false, "Is GRPC Request Or Not")
 	fetchCmd.Flags().BoolP("http2", "H", false, "Is HTTP2 Request Or Not")
 	fetchCmd.Flags().BoolP("verbose", "V", false, "Verbose mode")
+	fetchCmd.Flags().BoolP("upgrade", "U", false, "try http upgrade")
 	fetchCmd.Flags().StringP("proto-path", "P", "", "Proto Path")
 	base.AddSubCommands(fetchCmd)
 }

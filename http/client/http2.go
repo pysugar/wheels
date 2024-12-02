@@ -12,18 +12,21 @@ func (f *fetcher) doHTTP2(ctx context.Context, req *http.Request) (*http.Respons
 	logger := newVerboseLogger(ctx)
 	var netOpErr *net.OpError
 
-	cc, err := f.tryHTTP2Direct(ctx, req)
-	if errors.As(err, &netOpErr) {
-		logger.Printf("[%s] try http2 direct failure: %v", req.URL.RequestURI(), netOpErr)
-		return nil, netOpErr
+	upgrade := UpgradeFromContext(ctx)
+	if !upgrade {
+		cc, err := f.tryHTTP2Direct(ctx, req)
+		if errors.As(err, &netOpErr) {
+			logger.Printf("[%s] try http2 direct failure: %v", req.URL.RequestURI(), netOpErr)
+			return nil, netOpErr
+		}
+
+		if err == nil && cc != nil {
+			logger.Printf("try http2 direct success: %v", req.URL.RequestURI())
+			return cc.do(ctx, req)
+		}
 	}
 
-	if err == nil && cc != nil {
-		logger.Printf("try http2 direct success: %v", req.URL.RequestURI())
-		return cc.do(ctx, req)
-	}
-
-	cc, err = f.tryHTTP2Upgrade(ctx, req)
+	cc, err := f.tryHTTP2Upgrade(ctx, req)
 	if errors.As(err, &netOpErr) {
 		logger.Printf("[%s] try http2 upgrade failure: %v", req.URL.RequestURI(), netOpErr)
 		return nil, netOpErr
@@ -49,7 +52,7 @@ func (f *fetcher) tryHTTP2Direct(ctx context.Context, req *http.Request) (*clien
 	}
 
 	newVerboseLogger(ctx).Printf("[%s] Connect using HTTP/2 Prior Knowledge", req.URL.RequestURI())
-	return f.connPool.getConn(ctx, req.URL.Host, WithConn(conn))
+	return f.connPool.getConn(ctx, req.URL.Host, WithConn(conn), DisableSendPreface())
 }
 
 func (f *fetcher) tryHTTP2Upgrade(ctx context.Context, req *http.Request) (*clientConn, error) {
@@ -59,17 +62,17 @@ func (f *fetcher) tryHTTP2Upgrade(ctx context.Context, req *http.Request) (*clie
 	}
 
 	logger := newVerboseLogger(ctx)
-	logger.Printf("[%s] Attempting HTTP/2 Upgrade", req.URL.RequestURI())
-	err = sendUpgradeRequestHTTP1(conn, req.Method, req.URL)
+	logger.Printf("< [%s] Attempting HTTP/2 Upgrade", req.URL.RequestURI())
+	err = sendUpgradeRequestHTTP1(ctx, conn, req.Method, req.URL)
 	if err != nil {
-		logger.Printf("Failed to send HTTP/1.1 Upgrade request: %v", err)
+		logger.Printf("[%s] Failed to send HTTP/1.1 Upgrade request: %v", req.URL.RequestURI(), err)
 		conn.Close()
 		return nil, err
 	}
 
-	upgraded, err := readUpgradeResponse(conn)
+	upgraded, err := readUpgradeResponse(ctx, conn)
 	if err != nil {
-		logger.Printf("Failed to read response from Upgrade: %v", err)
+		logger.Printf("[%s] Failed to read response from Upgrade: %v", req.URL.RequestURI(), err)
 		conn.Close()
 		return nil, err
 	}
@@ -79,7 +82,7 @@ func (f *fetcher) tryHTTP2Upgrade(ctx context.Context, req *http.Request) (*clie
 		return f.connPool.getConn(ctx, req.URL.Host, WithConn(conn))
 	}
 
-	conn.Close()
 	logger.Printf("[%s] Server does not support HTTP/2 Upgrade", req.URL.RequestURI())
+	conn.Close()
 	return nil, errors.New("server does not support HTTP/2 Upgrade")
 }
