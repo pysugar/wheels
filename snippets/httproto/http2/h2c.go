@@ -40,16 +40,6 @@ func h2cUpgrade(w http.ResponseWriter, r *http.Request) (net.Conn, error) {
 	}
 	defer rw.Flush()
 
-	//reader := bufio.NewReader(conn)
-	//preface := make([]byte, 24)
-	//_, err = reader.Read(preface)
-	//if err != nil {
-	//	return nil, fmt.Errorf("read client preface: %v", err)
-	//}
-	//if string(preface) != "PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n" {
-	//	return nil, fmt.Errorf("client preface invalid: %v", preface)
-	//}
-
 	response := "HTTP/1.1 101 Switching Protocols\r\nConnection: Upgrade\r\nUpgrade: h2c\r\n\r\n"
 	if _, er := rw.WriteString(response); er != nil {
 		return nil, fmt.Errorf("send h2c upgrade response failure: %v", er)

@@ -46,6 +46,8 @@ call grpc service: netool fetch --grpc https://localhost:8443/grpc.health.v1.Hea
 			isGRPC, _ := cmd.Flags().GetBool("grpc")
 			isHTTP2, _ := cmd.Flags().GetBool("http2")
 			isWS, _ := cmd.Flags().GetBool("websocket")
+			isGorilla, _ := cmd.Flags().GetBool("gorilla")
+			isUpgrade, _ := cmd.Flags().GetBool("upgrade")
 			method, _ := cmd.Flags().GetString("method")
 
 			targetURL, err := url.Parse(args[0])
@@ -83,8 +85,11 @@ call grpc service: netool fetch --grpc https://localhost:8443/grpc.health.v1.Hea
 					fmt.Printf("failed to parse JSON to Protobuf: %v", err)
 					return
 				}
-
+				
 				ctx = client.WithProtocol(ctx, client.HTTP2)
+				if isUpgrade {
+					ctx = client.WithUpgrade(ctx)
+				}
 				if er := fetcher.CallGRPC(ctx, targetURL, reqMessage, resMessage); er != nil {
 					log.Printf("Call grpc %s error: %v\n", targetURL, er)
 					return
@@ -99,9 +104,12 @@ call grpc service: netool fetch --grpc https://localhost:8443/grpc.health.v1.Hea
 				return
 			}
 
-			if isWS {
+			if isWS || isGorilla {
 				ctx = client.WithProtocol(ctx, client.WebSocket)
 				ctx = client.WithUpgrade(ctx)
+				if isGorilla {
+					ctx = client.WithGorilla(ctx)
+				}
 
 				req, err := http.NewRequestWithContext(ctx, method, targetURL.String(), nil)
 				if err != nil {
@@ -117,7 +125,6 @@ call grpc service: netool fetch --grpc https://localhost:8443/grpc.health.v1.Hea
 
 			if isHTTP2 {
 				ctx = client.WithProtocol(ctx, client.HTTP2)
-				ctx = client.WithUpgrade(ctx)
 			}
 
 			var body io.Reader
@@ -153,6 +160,7 @@ func init() {
 	fetchCmd.Flags().BoolP("grpc", "G", false, "Is GRPC Request Or Not")
 	fetchCmd.Flags().BoolP("http2", "H", false, "Is HTTP2 Request Or Not")
 	fetchCmd.Flags().BoolP("websocket", "W", false, "Is WebSocket Request Or Not")
+	fetchCmd.Flags().BoolP("gorilla", "g", false, "Is Gorilla WebSocket Request Or Not")
 	fetchCmd.Flags().BoolP("verbose", "V", false, "Verbose mode")
 	fetchCmd.Flags().BoolP("upgrade", "U", false, "try http upgrade")
 	fetchCmd.Flags().StringP("proto-path", "P", "", "Proto Path")

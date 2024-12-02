@@ -46,6 +46,10 @@ func NewFetcher() Fetcher {
 }
 
 func (f *fetcher) Do(ctx context.Context, req *http.Request) (*http.Response, error) {
+	logger := newVerboseLogger(ctx)
+	logger.Printf("[http] upgrade: %v", UpgradeFromContext(ctx))
+	logger.Printf("[http] protocol: %v", ProtocolFromContext(ctx))
+	logger.Printf("[http] gorilla: %v", GorillaFromContext(ctx))
 	useTLS := req.URL.Scheme == "https"
 	if useTLS {
 		return f.doTLS(ctx, req)
@@ -54,10 +58,22 @@ func (f *fetcher) Do(ctx context.Context, req *http.Request) (*http.Response, er
 }
 
 func (f *fetcher) WS(ctx context.Context, req *http.Request) error {
+	logger := newVerboseLogger(ctx)
+	logger.Printf("[ws] upgrade: %v", UpgradeFromContext(ctx))
+	logger.Printf("[ws] protocol: %v", ProtocolFromContext(ctx))
+	logger.Printf("[ws] gorilla: %v", GorillaFromContext(ctx))
+	if GorillaFromContext(ctx) {
+		return f.doGorilla(ctx, req)
+	}
 	return f.doWebsocket(ctx, req)
 }
 
 func (f *fetcher) CallGRPC(ctx context.Context, serviceURL *url.URL, req, res proto.Message) error {
+	logger := newVerboseLogger(ctx)
+	logger.Printf("[grpc] upgrade: %v", UpgradeFromContext(ctx))
+	logger.Printf("[grpc] protocol: %v", ProtocolFromContext(ctx))
+	logger.Printf("[grpc] gorilla: %v", GorillaFromContext(ctx))
+
 	ctx = WithProtocol(ctx, HTTP2)
 	reqBytes, err := proto.Marshal(req)
 	if err != nil {
@@ -74,7 +90,6 @@ func (f *fetcher) CallGRPC(ctx context.Context, serviceURL *url.URL, req, res pr
 	httpReq.Header.Set("grpc-encoding", "identity")
 	httpReq.Header.Set("grpc-accept-encoding", "identity")
 
-	logger := newVerboseLogger(ctx)
 	logger.Printf("request: %+v", httpReq)
 
 	httpRes, err := f.Do(ctx, httpReq)

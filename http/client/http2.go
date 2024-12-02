@@ -24,6 +24,8 @@ func (f *fetcher) doHTTP2(ctx context.Context, req *http.Request) (*http.Respons
 			logger.Printf("try http2 direct success: %v", req.URL.RequestURI())
 			return cc.do(ctx, req)
 		}
+
+		logger.Printf("[%s] try http2 direct failure: %v", req.URL.RequestURI(), err)
 	}
 
 	cc, err := f.tryHTTP2Upgrade(ctx, req)

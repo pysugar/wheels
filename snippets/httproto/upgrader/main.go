@@ -12,6 +12,7 @@ import (
 	"github.com/pysugar/wheels/snippets/httproto/ws"
 )
 
+// export GODEBUG=http2debug=1
 func main() {
 	handlerFunc := func(w http.ResponseWriter, r *http.Request) {
 		upgradeHeader := r.Header.Get("Upgrade")
@@ -23,6 +24,7 @@ func main() {
 				fmt.Fprintln(w, "Has already upgrade to HTTP/2")
 			}).ServeHTTP(w, r)
 		} else if strings.Contains(strings.ToLower(upgradeHeader), "tls/1.0") {
+			// deprecated
 			tls10.TLS10Handler(func(w http.ResponseWriter, r *http.Request) {
 				log.Printf("[tls/1.0] %s %s %s", r.RemoteAddr, r.Method, r.URL)
 				fmt.Fprintln(w, "Has already upgrade to tls/1.0")
