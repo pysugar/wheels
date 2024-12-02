@@ -45,6 +45,7 @@ call grpc service: netool fetch --grpc https://localhost:8443/grpc.health.v1.Hea
 
 			isGRPC, _ := cmd.Flags().GetBool("grpc")
 			isHTTP2, _ := cmd.Flags().GetBool("http2")
+			isWS, _ := cmd.Flags().GetBool("websocket")
 			method, _ := cmd.Flags().GetString("method")
 
 			targetURL, err := url.Parse(args[0])
@@ -98,6 +99,22 @@ call grpc service: netool fetch --grpc https://localhost:8443/grpc.health.v1.Hea
 				return
 			}
 
+			if isWS {
+				ctx = client.WithProtocol(ctx, client.WebSocket)
+				ctx = client.WithUpgrade(ctx)
+
+				req, err := http.NewRequestWithContext(ctx, method, targetURL.String(), nil)
+				if err != nil {
+					fmt.Printf("failed to create request: %v\n", err)
+					return
+				}
+				err = fetcher.WS(ctx, req)
+				if err != nil {
+					fmt.Printf("failed to fetch websocket: %v\n", err)
+				}
+				return
+			}
+
 			if isHTTP2 {
 				ctx = client.WithProtocol(ctx, client.HTTP2)
 				ctx = client.WithUpgrade(ctx)
@@ -112,9 +129,14 @@ call grpc service: netool fetch --grpc https://localhost:8443/grpc.health.v1.Hea
 			}
 
 			req, err := http.NewRequestWithContext(ctx, method, targetURL.String(), body)
+			if err != nil {
+				fmt.Printf("failed to create request: %v\n", err)
+				return
+			}
+
 			res, er := fetcher.Do(ctx, req)
 			if er != nil {
-				log.Printf("Call %v %s error: %v\n", client.ProtocolFromContext(ctx), targetURL, err)
+				fmt.Printf("Call %v %s error: %v\n", client.ProtocolFromContext(ctx), targetURL, er)
 				return
 			}
 			fmt.Printf("http status: %s\n", res.Status)
@@ -130,6 +152,7 @@ func init() {
 	fetchCmd.Flags().StringP("data", "d", "{}", "request data")
 	fetchCmd.Flags().BoolP("grpc", "G", false, "Is GRPC Request Or Not")
 	fetchCmd.Flags().BoolP("http2", "H", false, "Is HTTP2 Request Or Not")
+	fetchCmd.Flags().BoolP("websocket", "W", false, "Is WebSocket Request Or Not")
 	fetchCmd.Flags().BoolP("verbose", "V", false, "Verbose mode")
 	fetchCmd.Flags().BoolP("upgrade", "U", false, "try http upgrade")
 	fetchCmd.Flags().StringP("proto-path", "P", "", "Proto Path")

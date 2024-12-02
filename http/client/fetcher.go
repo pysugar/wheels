@@ -24,6 +24,7 @@ import (
 type (
 	Fetcher interface {
 		Do(context.Context, *http.Request) (*http.Response, error)
+		WS(ctx context.Context, req *http.Request) error
 		CallGRPC(ctx context.Context, serviceURL *url.URL, req, res proto.Message) error
 		Close() error
 	}
@@ -50,6 +51,10 @@ func (f *fetcher) Do(ctx context.Context, req *http.Request) (*http.Response, er
 		return f.doTLS(ctx, req)
 	}
 	return f.doHTTP(ctx, req)
+}
+
+func (f *fetcher) WS(ctx context.Context, req *http.Request) error {
+	return f.doWebsocket(ctx, req)
 }
 
 func (f *fetcher) CallGRPC(ctx context.Context, serviceURL *url.URL, req, res proto.Message) error {

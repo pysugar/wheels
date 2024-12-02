@@ -15,6 +15,7 @@ const (
 	HTTP1
 	HTTP10
 	HTTP11
+	WebSocket
 )
 
 var (
