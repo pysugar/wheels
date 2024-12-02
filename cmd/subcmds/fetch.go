@@ -103,10 +103,12 @@ call grpc service: netool fetch --grpc https://localhost:8443/grpc.health.v1.Hea
 				ctx = client.WithUpgrade(ctx)
 			}
 
-			data, _ := cmd.Flags().GetString("data")
 			var body io.Reader
-			if data != "" {
-				body = strings.NewReader(data)
+			if strings.EqualFold(method, "POST") || strings.EqualFold(method, "PUT") || strings.EqualFold(method, "PATCH") {
+				data, _ := cmd.Flags().GetString("data")
+				if data != "" {
+					body = strings.NewReader(data)
+				}
 			}
 
 			req, err := http.NewRequestWithContext(ctx, method, targetURL.String(), body)

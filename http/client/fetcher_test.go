@@ -2,8 +2,11 @@ package client
 
 import (
 	"context"
+	"fmt"
+	"github.com/pysugar/wheels/http/extensions"
 	"io"
 	"net/http"
+	"net/http/httptrace"
 	"net/url"
 	"testing"
 	"time"
@@ -13,11 +16,11 @@ import (
 
 func TestFetcher_Do(t *testing.T) {
 	serverURLs := []string{
-		"http://ipinfo.io/",
+		//"http://ipinfo.io/",
 		"https://ipinfo.io/",
-		"http://ifconfig.me",
-		"https://ifconfig.me",
-		"http://localhost:8080/grpc/grpc.health.v1.Health/Check",
+		//"http://ifconfig.me",
+		//		"https://ifconfig.me",
+		//"http://localhost:8080/grpc/grpc.health.v1.Health/Check",
 	}
 
 	for _, serverURL := range serverURLs {
@@ -61,10 +64,11 @@ func doGetRequest(t *testing.T, rawURL string) {
 		t.Fatal(err)
 	}
 
-	cp := newConnPool()
-	f := &fetcher{
-		connPool: cp,
-	}
+	ctx = WithVerbose(ctx)
+	ctx = httptrace.WithClientTrace(ctx, extensions.NewDebugClientTrace(fmt.Sprintf("req-%03d", 1)))
+	ctx = WithProtocol(ctx, HTTP2)
+	ctx = WithUpgrade(ctx)
+	f := NewFetcher()
 	res, err := f.Do(ctx, req)
 	if err != nil {
 		t.Fatal(err)
