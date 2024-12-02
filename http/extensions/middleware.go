@@ -30,7 +30,7 @@ func LoggingMiddleware(next http.Handler) http.Handler {
 		if r.Response != nil {
 			log.Printf("Sending HTTP Response: %s\nCost: %v >\n", FormatResponse(r.Response), time.Since(start))
 		} else {
-			log.Printf("Sending HTTP Error: \n%s\nCost: %v >\n", FormatResponseWriter(w), time.Since(start))
+			log.Printf("Finish Upgrade Response: \n%s\nCost: %v >\n", FormatResponseWriter(w), time.Since(start))
 		}
 	})
 }
