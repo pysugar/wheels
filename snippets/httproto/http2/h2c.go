@@ -20,11 +20,13 @@ func SimpleH2cHandler(h http.HandlerFunc) http.HandlerFunc {
 		}
 
 		go h2s.ServeConn(conn, &http2.ServeConnOpts{
+			Context: r.Context(),
 			BaseConfig: &http.Server{
-				Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-					h(w, r)
-				}),
+				Handler: h,
 			},
+			Handler: h,
+			// todo here is a bug for golang.org/x/net/http2/h2c
+			// UpgradeRequest: r,
 		})
 	}
 }

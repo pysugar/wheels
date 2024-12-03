@@ -126,10 +126,6 @@ func (f *fetcher) CallGRPC(ctx context.Context, serviceURL *url.URL, req, res pr
 	return nil
 }
 
-func (f *fetcher) Close() error {
-	return f.connPool.Close()
-}
-
 func (f *fetcher) doHTTP(ctx context.Context, req *http.Request) (*http.Response, error) {
 	protocol := ProtocolFromContext(ctx)
 	if protocol == HTTP2 {
@@ -187,6 +183,10 @@ func (f *fetcher) doHTTP2WithTLS(ctx context.Context, tlsConn *tls.Conn, req *ht
 		logger.Printf("[%s] Failed to connect using NegotiatedProtocol: %v", req.URL.RequestURI(), err)
 	}
 	return nil, ErrHTTP2Unsupported
+}
+
+func (f *fetcher) Close() error {
+	return f.connPool.Close()
 }
 
 func dialConn(addr string, useTLS bool) (net.Conn, error) {

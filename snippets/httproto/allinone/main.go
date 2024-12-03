@@ -9,15 +9,17 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/pysugar/wheels/http/extensions"
 	"github.com/pysugar/wheels/snippets/httproto/grpc"
-	"github.com/pysugar/wheels/snippets/httproto/http2"
+	h2 "github.com/pysugar/wheels/snippets/httproto/http2"
 	"github.com/pysugar/wheels/snippets/httproto/ws"
+	"golang.org/x/net/http2"
+	"golang.org/x/net/http2/h2c"
 )
 
 // export GODEBUG=http2debug=1
 func main() {
 	mux := http.NewServeMux()
 
-	// netool fetch --verbose http://127.0.0.1:8080/health
+	// netool fetch --http1 --verbose http://127.0.0.1:8080/health
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintln(w, "OK")
 	})
@@ -31,9 +33,11 @@ func main() {
 		}
 	})
 
-	h2cHandler := http2.SimpleH2cHandler(extensions.DebugHandler)
+	// netool fetch --http1 --verbose http://127.0.0.1:8080/h2c
 	// netool fetch --upgrade --http2 --verbose http://127.0.0.1:8080/h2c
 	// netool fetch --upgrade --http2 --method=POST --verbose http://127.0.0.1:8080/h2c
+	h2cHandler := http.HandlerFunc(extensions.DebugHandler)
+	// h2cHandler := h2.SimpleH2cHandler(extensions.DebugHandler)
 	mux.HandleFunc("/h2c", func(w http.ResponseWriter, r *http.Request) {
 		if strings.ToLower(r.Header.Get("Upgrade")) == "h2c" {
 			h2cHandler.ServeHTTP(w, r)
@@ -44,7 +48,7 @@ func main() {
 
 	// netool fetch --http2 --upgrade --verbose http://127.0.0.1:8080/http2
 	mux.HandleFunc("/http2", func(w http.ResponseWriter, r *http.Request) {
-		http2.NewH2CHandler(extensions.DebugHandler).ServeHTTP(w, r)
+		h2.NewH2CHandler(extensions.DebugHandler).ServeHTTP(w, r)
 	})
 
 	echoHandler := grpc.NewEchoHandler()
@@ -64,9 +68,12 @@ func main() {
 	})
 	mux.Handle("/metrics", promhttp.Handler())
 
+	h2s := &http2.Server{}
+	// handler := extensions.LoggingMiddleware(h2c.NewHandler(mux, h2s))
+	handler := h2c.NewHandler(mux, h2s)
 	server := &http.Server{
 		Addr:    ":8080",
-		Handler: mux,
+		Handler: handler,
 	}
 
 	log.Println("Server started，listen port 8080")

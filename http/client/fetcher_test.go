@@ -3,7 +3,6 @@ package client
 import (
 	"context"
 	"fmt"
-	"github.com/pysugar/wheels/http/extensions"
 	"io"
 	"net/http"
 	"net/http/httptrace"
@@ -11,16 +10,40 @@ import (
 	"testing"
 	"time"
 
+	"github.com/pysugar/wheels/http/extensions"
 	grpchealthv1 "google.golang.org/grpc/health/grpc_health_v1"
 )
 
+func TestH2C(t *testing.T) {
+	serverURL, _ := url.Parse("http://127.0.0.1:8080/h2c")
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, "GET", serverURL.String(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	ctx = WithVerbose(ctx)
+	ctx = WithUpgrade(ctx)
+	ctx = httptrace.WithClientTrace(ctx, extensions.NewDebugClientTrace(fmt.Sprintf("req-%03d", 1)))
+	f := NewFetcher()
+	res, err := f.Do(ctx, req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Logf("%v", res.Status)
+	body, _ := io.ReadAll(res.Body)
+	t.Logf("Body: %s", body)
+}
+
 func TestFetcher_Do(t *testing.T) {
 	serverURLs := []string{
-		//"http://ipinfo.io/",
+		"http://ipinfo.io/",
 		"https://ipinfo.io/",
-		//"http://ifconfig.me",
-		//		"https://ifconfig.me",
-		//"http://localhost:8080/grpc/grpc.health.v1.Health/Check",
+		"http://ifconfig.me",
+		"https://ifconfig.me",
+		"http://localhost:8080/grpc/grpc.health.v1.Health/Check",
 	}
 
 	for _, serverURL := range serverURLs {
@@ -66,8 +89,6 @@ func doGetRequest(t *testing.T, rawURL string) {
 
 	ctx = WithVerbose(ctx)
 	ctx = httptrace.WithClientTrace(ctx, extensions.NewDebugClientTrace(fmt.Sprintf("req-%03d", 1)))
-	ctx = WithProtocol(ctx, HTTP2)
-	ctx = WithUpgrade(ctx)
 	f := NewFetcher()
 	res, err := f.Do(ctx, req)
 	if err != nil {

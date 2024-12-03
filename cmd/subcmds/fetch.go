@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync/atomic"
+	"time"
 
 	"github.com/jhump/protoreflect/desc/protoparse"
 	"github.com/pysugar/wheels/cmd/base"
@@ -43,92 +44,47 @@ call grpc service: netool fetch --grpc https://localhost:8443/grpc.health.v1.Hea
 				return
 			}
 
-			isGRPC, _ := cmd.Flags().GetBool("grpc")
-			isHTTP2, _ := cmd.Flags().GetBool("http2")
-			isWS, _ := cmd.Flags().GetBool("websocket")
-			isGorilla, _ := cmd.Flags().GetBool("gorilla")
-			isUpgrade, _ := cmd.Flags().GetBool("upgrade")
-			method, _ := cmd.Flags().GetString("method")
-
 			targetURL, err := url.Parse(args[0])
 			if err != nil {
 				log.Printf("invalid url %s\n", args[0])
 				return
 			}
 
-			ctx, cancel := context.WithCancel(context.Background())
-			defer cancel()
-			isVerbose, _ := cmd.Flags().GetBool("verbose")
-			if isVerbose {
-				ctx = client.WithVerbose(ctx)
-				ctx = httptrace.WithClientTrace(ctx, extensions.NewDebugClientTrace(fmt.Sprintf("req-%03d",
-					atomic.AddUint32(&traceIdGen, 1))))
-			}
-
-			fetcher := client.NewFetcher()
+			isGRPC, _ := cmd.Flags().GetBool("grpc")
 			if isGRPC {
-				service, method, err := extractServiceAndMethod(targetURL)
+				err := gRPCCall(cmd, targetURL)
 				if err != nil {
-					log.Printf("invalid service or method %v\n", err)
-					return
+					log.Fatal(err)
 				}
-
-				requestJson, _ := cmd.Flags().GetString("data")
-				protoPath, _ := cmd.Flags().GetString("proto-path")
-				reqMessage, resMessage, err := getReqResMessages(protoPath, service, method, isVerbose)
-				if err != nil {
-					log.Printf("invalid proto file: %s, err: %v\n", protoPath, err)
-					return
-				}
-				err = protojson.Unmarshal([]byte(requestJson), reqMessage)
-				if err != nil {
-					fmt.Printf("failed to parse JSON to Protobuf: %v", err)
-					return
-				}
-				
-				ctx = client.WithProtocol(ctx, client.HTTP2)
-				if isUpgrade {
-					ctx = client.WithUpgrade(ctx)
-				}
-				if er := fetcher.CallGRPC(ctx, targetURL, reqMessage, resMessage); er != nil {
-					log.Printf("Call grpc %s error: %v\n", targetURL, er)
-					return
-				}
-
-				responseJson, err := protojson.Marshal(resMessage)
-				if err != nil {
-					fmt.Printf("failed to serialize response to JSON: %v", err)
-					return
-				}
-				log.Printf("%s", responseJson)
 				return
 			}
 
+			isWS, _ := cmd.Flags().GetBool("websocket")
+			isGorilla, _ := cmd.Flags().GetBool("gorilla")
 			if isWS || isGorilla {
-				ctx = client.WithProtocol(ctx, client.WebSocket)
-				ctx = client.WithUpgrade(ctx)
-				if isGorilla {
-					ctx = client.WithGorilla(ctx)
-				}
-
-				req, err := http.NewRequestWithContext(ctx, method, targetURL.String(), nil)
+				err := wsCall(cmd, targetURL, isGorilla)
 				if err != nil {
-					fmt.Printf("failed to create request: %v\n", err)
-					return
-				}
-				err = fetcher.WS(ctx, req)
-				if err != nil {
-					fmt.Printf("failed to fetch websocket: %v\n", err)
+					log.Fatal(err)
 				}
 				return
 			}
 
-			if isHTTP2 {
+			isVerbose, _ := cmd.Flags().GetBool("verbose")
+			isUpgrade, _ := cmd.Flags().GetBool("upgrade")
+			ctx, cancel := newContext(isVerbose, isUpgrade)
+			defer cancel()
+
+			isHTTP1, _ := cmd.Flags().GetBool("http1")
+			isHTTP2, _ := cmd.Flags().GetBool("http2")
+			if isHTTP1 {
+				ctx = client.WithProtocol(ctx, client.HTTP1)
+			} else if isHTTP2 {
 				ctx = client.WithProtocol(ctx, client.HTTP2)
 			}
+			method, _ := cmd.Flags().GetString("method")
 
 			var body io.Reader
-			if strings.EqualFold(method, "POST") || strings.EqualFold(method, "PUT") || strings.EqualFold(method, "PATCH") {
+			if strings.EqualFold(method, http.MethodPost) || strings.EqualFold(method, http.MethodPut) || strings.EqualFold(method, http.MethodPatch) {
 				data, _ := cmd.Flags().GetString("data")
 				if data != "" {
 					body = strings.NewReader(data)
@@ -141,12 +97,20 @@ call grpc service: netool fetch --grpc https://localhost:8443/grpc.health.v1.Hea
 				return
 			}
 
-			res, er := fetcher.Do(ctx, req)
+			res, er := client.NewFetcher().Do(ctx, req)
 			if er != nil {
 				fmt.Printf("Call %v %s error: %v\n", client.ProtocolFromContext(ctx), targetURL, er)
 				return
 			}
-			fmt.Printf("http status: %s\n", res.Status)
+
+			if isVerbose {
+				fmt.Println("\n+++++++++++++++++++++++++++")
+			}
+			fmt.Printf("%s %s\r\n", res.Status, res.Proto)
+			for k, v := range res.Header {
+				fmt.Printf("%s: %s\r\n", k, v)
+			}
+			fmt.Printf("\r\n")
 			resBody, _ := io.ReadAll(res.Body)
 			fmt.Printf("%s", resBody)
 		},
@@ -157,14 +121,91 @@ func init() {
 	fetchCmd.Flags().StringP("user-agent", "A", "", "User Agent")
 	fetchCmd.Flags().StringP("method", "M", "GET", "HTTP Method")
 	fetchCmd.Flags().StringP("data", "d", "{}", "request data")
-	fetchCmd.Flags().BoolP("grpc", "G", false, "Is GRPC Request Or Not")
-	fetchCmd.Flags().BoolP("http2", "H", false, "Is HTTP2 Request Or Not")
+	fetchCmd.Flags().BoolP("http1", "", false, "Is HTTP2 Request Or Not")
+	fetchCmd.Flags().BoolP("http2", "", false, "Is HTTP2 Request Or Not")
 	fetchCmd.Flags().BoolP("websocket", "W", false, "Is WebSocket Request Or Not")
 	fetchCmd.Flags().BoolP("gorilla", "g", false, "Is Gorilla WebSocket Request Or Not")
+	fetchCmd.Flags().BoolP("grpc", "G", false, "Is GRPC Request Or Not")
 	fetchCmd.Flags().BoolP("verbose", "V", false, "Verbose mode")
 	fetchCmd.Flags().BoolP("upgrade", "U", false, "try http upgrade")
 	fetchCmd.Flags().StringP("proto-path", "P", "", "Proto Path")
 	base.AddSubCommands(fetchCmd)
+}
+
+func wsCall(cmd *cobra.Command, targetURL *url.URL, isGorilla bool) error {
+	isVerbose, _ := cmd.Flags().GetBool("verbose")
+	ctx, cancel := newContext(isVerbose, true)
+	defer cancel()
+	ctx = client.WithProtocol(ctx, client.WebSocket)
+	if isGorilla {
+		ctx = client.WithGorilla(ctx)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, targetURL.String(), nil)
+	if err != nil {
+		fmt.Printf("failed to create request: %v\n", err)
+		return err
+	}
+	err = client.NewFetcher().WS(ctx, req)
+	if err != nil {
+		fmt.Printf("failed to fetch websocket: %v\n", err)
+		return err
+	}
+	return nil
+}
+
+func gRPCCall(cmd *cobra.Command, targetURL *url.URL) error {
+	service, method, err := extractServiceAndMethod(targetURL)
+	if err != nil {
+		log.Printf("invalid service or method %v\n", err)
+		return err
+	}
+
+	requestJson, _ := cmd.Flags().GetString("data")
+	protoPath, _ := cmd.Flags().GetString("proto-path")
+	isVerbose, _ := cmd.Flags().GetBool("verbose")
+	reqMessage, resMessage, err := getReqResMessages(protoPath, service, method, isVerbose)
+	if err != nil {
+		log.Printf("invalid proto file: %s, err: %v\n", protoPath, err)
+		return err
+	}
+
+	err = protojson.Unmarshal([]byte(requestJson), reqMessage)
+	if err != nil {
+		fmt.Printf("failed to parse JSON to Protobuf: %v", err)
+		return err
+	}
+
+	isUpgrade, _ := cmd.Flags().GetBool("upgrade")
+	ctx, cancel := newContext(isVerbose, isUpgrade)
+	defer cancel()
+
+	ctx = client.WithProtocol(ctx, client.HTTP2)
+	if er := client.NewFetcher().CallGRPC(ctx, targetURL, reqMessage, resMessage); er != nil {
+		log.Printf("Call grpc %s error: %v\n", targetURL, er)
+		return err
+	}
+
+	responseJson, err := protojson.Marshal(resMessage)
+	if err != nil {
+		fmt.Printf("failed to serialize response to JSON: %v", err)
+		return err
+	}
+	log.Printf("%s", responseJson)
+	return nil
+}
+
+func newContext(isVerbose, isUpgrade bool) (context.Context, context.CancelFunc) {
+	ctx, cancel := context.WithTimeout(context.Background(), 150*time.Second)
+	if isVerbose {
+		ctx = client.WithVerbose(ctx)
+		traceId := atomic.AddUint32(&traceIdGen, 1)
+		ctx = httptrace.WithClientTrace(ctx, extensions.NewDebugClientTrace(fmt.Sprintf("req-%03d", traceId)))
+	}
+	if isUpgrade {
+		ctx = client.WithUpgrade(ctx)
+	}
+	return ctx, cancel
 }
 
 func extractServiceAndMethod(parsedURL *url.URL) (string, string, error) {

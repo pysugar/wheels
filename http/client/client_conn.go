@@ -144,6 +144,9 @@ func dialContext(ctx context.Context, target string, opts ...DialOption) (cc *cl
 }
 
 func (c *clientConn) do(ctx context.Context, req *http.Request) (res *http.Response, err error) {
+	c.verbose("[%s] start request", req.URL)
+	defer c.verbose("[%s] end request", req.URL)
+
 	c.mu.Lock()
 	if c.closed {
 		c.mu.Unlock()

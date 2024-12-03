@@ -19,7 +19,7 @@ type DialOption func(*dialOptions)
 
 var (
 	defaultDialOptions = &dialOptions{
-		timeout:     30 * time.Second,
+		timeout:     90 * time.Second,
 		verbose:     false,
 		sendPreface: true,
 	}
