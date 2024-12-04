@@ -7,6 +7,7 @@ import (
 
 type (
 	VerboseLogger interface {
+		Verbose() bool
 		Printf(format string, v ...any)
 		Println(v ...any)
 	}
@@ -20,6 +21,10 @@ func newVerboseLogger(ctx context.Context) VerboseLogger {
 	return &verboseLogger{
 		verbose: VerboseFromContext(ctx),
 	}
+}
+
+func (vl *verboseLogger) Verbose() bool {
+	return vl.verbose
 }
 
 func (vl *verboseLogger) Printf(format string, v ...any) {

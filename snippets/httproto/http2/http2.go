@@ -1,14 +1,17 @@
 package http2
 
 import (
+	"log"
 	"net/http"
 
 	"golang.org/x/net/http2"
 	"golang.org/x/net/http2/h2c"
 )
 
-// todo there is a bug
-func NewH2CHandler(h http.HandlerFunc) http.Handler {
-	var h2s = &http2.Server{}
-	return h2c.NewHandler(h, h2s)
+func NewH2CHandler(h http.HandlerFunc) http.HandlerFunc {
+	handler := h2c.NewHandler(h, &http2.Server{})
+	log.Printf("New H2C Handler: %T", handler)
+	return func(w http.ResponseWriter, req *http.Request) {
+		handler.ServeHTTP(w, req)
+	}
 }

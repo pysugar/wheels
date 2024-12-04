@@ -24,6 +24,15 @@ func main() {
 		fmt.Fprintln(w, "OK")
 	})
 
+	// netool fetch --websocket --verbose http://127.0.0.1:8080/websocket
+	mux.HandleFunc("/websocket", func(w http.ResponseWriter, r *http.Request) {
+		if strings.ToLower(r.Header.Get("Upgrade")) == "websocket" {
+			ws.SimpleEchoHandler(w, r)
+		} else {
+			http.Error(w, "Unsupported upgrade protocol", http.StatusUpgradeRequired)
+		}
+	})
+
 	// netool fetch --gorilla --verbose http://127.0.0.1:8080/ws
 	mux.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
 		if strings.ToLower(r.Header.Get("Upgrade")) == "websocket" {
@@ -34,10 +43,11 @@ func main() {
 	})
 
 	// netool fetch --http1 --verbose http://127.0.0.1:8080/h2c
-	// netool fetch --upgrade --http2 --verbose http://127.0.0.1:8080/h2c
+	// netool fetch --http2 --verbose http://127.0.0.1:8080/h2c
+	// netool fetch --http2 --verbose --method=POST  http://127.0.0.1:8080/h2c
+	// netool fetch --upgrade --verbose --http2 http://127.0.0.1:8080/h2c
 	// netool fetch --upgrade --http2 --method=POST --verbose http://127.0.0.1:8080/h2c
 	h2cHandler := http.HandlerFunc(extensions.DebugHandler)
-	// h2cHandler := h2.SimpleH2cHandler(extensions.DebugHandler)
 	mux.HandleFunc("/h2c", func(w http.ResponseWriter, r *http.Request) {
 		if strings.ToLower(r.Header.Get("Upgrade")) == "h2c" {
 			h2cHandler.ServeHTTP(w, r)
@@ -46,9 +56,10 @@ func main() {
 		}
 	})
 
-	// netool fetch --http2 --upgrade --verbose http://127.0.0.1:8080/http2
+	// netool fetch --http2 --verbose http://127.0.0.1:8080/http2
+	http2Handler := h2.NewH2CHandler(extensions.DebugHandler)
 	mux.HandleFunc("/http2", func(w http.ResponseWriter, r *http.Request) {
-		h2.NewH2CHandler(extensions.DebugHandler).ServeHTTP(w, r)
+		http2Handler.ServeHTTP(w, r)
 	})
 
 	echoHandler := grpc.NewEchoHandler()

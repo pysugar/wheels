@@ -194,7 +194,7 @@ func gRPCCall(cmd *cobra.Command, targetURL *url.URL) error {
 		fmt.Printf("failed to serialize response to JSON: %v", err)
 		return err
 	}
-	log.Printf("%s", responseJson)
+	fmt.Printf("%s\n", responseJson)
 	return nil
 }
 
@@ -203,7 +203,7 @@ func newContext(isVerbose, isUpgrade bool) (context.Context, context.CancelFunc)
 	if isVerbose {
 		ctx = client.WithVerbose(ctx)
 		traceId := atomic.AddUint32(&traceIdGen, 1)
-		ctx = httptrace.WithClientTrace(ctx, extensions.NewDebugClientTrace(fmt.Sprintf("req-%03d", traceId)))
+		ctx = httptrace.WithClientTrace(ctx, extensions.NewDebugClientTrace(fmt.Sprintf("trace-req-%03d", traceId)))
 	}
 	if isUpgrade {
 		ctx = client.WithUpgrade(ctx)

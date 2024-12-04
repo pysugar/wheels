@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"strings"
 )
 
 type (
@@ -85,13 +86,27 @@ func (f *fetcher) CallGRPC(ctx context.Context, serviceURL *url.URL, req, res pr
 	httpReq.Header.Set("grpc-encoding", "identity")
 	httpReq.Header.Set("grpc-accept-encoding", "identity")
 
-	logger.Printf("request: %+v", httpReq)
+	if logger.Verbose() {
+		logger.Printf("\t> %s %s HTTP/1.1\r\n", valueOrDefault(httpReq.Method, http.MethodGet), serviceURL.RequestURI())
+		for k, v := range httpReq.Header {
+			logger.Printf("\t> %s: %s", k, strings.Join(v, ","))
+		}
+		logger.Printf("\t> \r\n")
+	}
 
 	httpRes, err := f.Do(ctx, httpReq)
 	if err != nil {
 		return err
 	}
-	logger.Printf("response: %+v", httpRes)
+	if logger.Verbose() {
+		logger.Printf("\t< %s %s\r\n", httpRes.Status, httpRes.Proto)
+		for k, v := range httpRes.Header {
+			logger.Printf("\t< %s: %s\r\n", k, strings.Join(v, ","))
+		}
+		for k, v := range httpRes.Trailer {
+			logger.Printf("\t< %s: %s\r\n", k, strings.Join(v, ","))
+		}
+	}
 
 	grpcStatus := 0
 	grpcMessage := ""

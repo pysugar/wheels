@@ -11,7 +11,6 @@ import (
 
 	grpcprometheus "github.com/grpc-ecosystem/go-grpc-prometheus"
 	pb "github.com/pysugar/wheels/grpc/proto"
-	"golang.org/x/net/http2"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/channelz/service"
 	"google.golang.org/grpc/health"
@@ -50,23 +49,7 @@ func NewEchoHandler() http.HandlerFunc {
 	grpcprometheus.Register(grpcServer)
 	pb.RegisterEchoServiceServer(grpcServer, &server{})
 
-	handler := http.HandlerFunc(grpcServer.ServeHTTP)
-	h2s := &http2.Server{}
-	return func(w http.ResponseWriter, r *http.Request) {
-		log.Printf("Received request from client: %s", r.RequestURI)
-		conn, err := h2cUpgrade(w, r)
-		if err != nil {
-			log.Println("HTTP/2 Upgrade Failure", err)
-			http.Error(w, "HTTP/2 Upgrade Failure", http.StatusInternalServerError)
-			return
-		}
-
-		go h2s.ServeConn(conn, &http2.ServeConnOpts{
-			BaseConfig: &http.Server{
-				Handler: handler,
-			},
-		})
-	}
+	return grpcServer.ServeHTTP
 }
 
 func removePrefixInterceptor(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
