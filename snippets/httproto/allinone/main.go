@@ -63,13 +63,8 @@ func main() {
 	})
 
 	echoHandler := grpc.NewEchoHandler()
-	// netool fetch --grpc --upgrade --verbose http://localhost:8080/grpc/proto.EchoService/Echo --proto-path=../grpc/proto/echo.proto -d'{"message": "netool"}'
+	// netool fetch --grpc --verbose http://localhost:8080/grpc/proto.EchoService/Echo --proto-path=../grpc/proto/echo.proto -d'{"message": "netool"}'
 	mux.HandleFunc("/grpc/", func(w http.ResponseWriter, r *http.Request) {
-		log.Printf("Received gRPC request: %s %s %s\n", r.Method, r.URL.Path, r.Proto)
-		for k, v := range r.Header {
-			log.Printf("Header[%q] = %q\n", k, v)
-		}
-
 		originalPath := r.URL.Path
 		r.URL.Path = strings.TrimPrefix(r.URL.Path, "/grpc")
 		r.RequestURI = r.URL.RequestURI()
@@ -77,11 +72,14 @@ func main() {
 
 		echoHandler.ServeHTTP(w, r)
 	})
+
+	// netool fetch --http1 --verbose http://127.0.0.1:8080/metrics
+	// netool fetch --http2 --verbose http://127.0.0.1:8080/metrics
 	mux.Handle("/metrics", promhttp.Handler())
 
 	h2s := &http2.Server{}
-	// handler := extensions.LoggingMiddleware(h2c.NewHandler(mux, h2s))
-	handler := h2c.NewHandler(mux, h2s)
+	handler := h2c.NewHandler(extensions.LoggingMiddleware(mux), h2s)
+	// handler := h2c.NewHandler(mux, h2s)
 	server := &http.Server{
 		Addr:    ":8080",
 		Handler: handler,

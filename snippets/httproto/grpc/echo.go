@@ -2,11 +2,9 @@ package grpc
 
 import (
 	"context"
-	"fmt"
+	"github.com/pysugar/wheels/grpc/interceptors"
 	"log"
-	"net"
 	"net/http"
-	"strings"
 	"time"
 
 	grpcprometheus "github.com/grpc-ecosystem/go-grpc-prometheus"
@@ -38,7 +36,7 @@ func NewEchoHandler() http.HandlerFunc {
 
 	grpcServer := grpc.NewServer(
 		grpc.KeepaliveParams(kaParams),
-		grpc.ChainUnaryInterceptor(removePrefixInterceptor, grpcprometheus.UnaryServerInterceptor),
+		grpc.ChainUnaryInterceptor(interceptors.LoggingUnaryServerInterceptor, grpcprometheus.UnaryServerInterceptor),
 		grpc.StreamInterceptor(grpcprometheus.StreamServerInterceptor),
 	)
 
@@ -50,38 +48,4 @@ func NewEchoHandler() http.HandlerFunc {
 	pb.RegisterEchoServiceServer(grpcServer, &server{})
 
 	return grpcServer.ServeHTTP
-}
-
-func removePrefixInterceptor(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
-	originalMethod := info.FullMethod
-	log.Printf("Original Method: %v", originalMethod)
-
-	if strings.HasPrefix(originalMethod, "/grpc") {
-		info.FullMethod = strings.TrimPrefix(originalMethod, "/grpc")
-		log.Printf("Modified Method: %v", info.FullMethod)
-	}
-
-	return handler(ctx, req)
-}
-
-func h2cUpgrade(w http.ResponseWriter, r *http.Request) (net.Conn, error) {
-	hijacker, ok := w.(http.Hijacker)
-	if !ok {
-		return nil, fmt.Errorf("h2c upgrade server unsupport hijacker")
-	}
-	conn, rw, err := hijacker.Hijack()
-	if err != nil {
-		return nil, fmt.Errorf("h2c upgrade conn hijack failure: %v", err)
-	}
-	defer rw.Flush()
-
-	response := "HTTP/1.1 101 Switching Protocols\r\nConnection: Upgrade\r\nUpgrade: h2c\r\n\r\n"
-	if _, er := rw.WriteString(response); er != nil {
-		return nil, fmt.Errorf("send h2c upgrade response failure: %v", er)
-	}
-	if er := rw.Flush(); er != nil {
-		return nil, fmt.Errorf("h2c upgrade flush buffer failure：%v", er)
-	}
-
-	return conn, nil
 }
