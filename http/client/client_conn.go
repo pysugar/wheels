@@ -95,9 +95,9 @@ func dialContext(ctx context.Context, target string, opts ...DialOption) (cc *cl
 	logger := newVerboseLogger(ctx)
 	if dopts.sendPreface {
 		logger.Printf("[%T] Send HTTP/2 Client Preface: %s\n", conn, clientPreface)
-		if _, er := conn.Write(clientPreface); er != nil {
+		if _, err = conn.Write(clientPreface); err != nil {
 			conn.Close()
-			err = er
+			return nil, err
 		}
 	}
 
@@ -131,10 +131,17 @@ func dialContext(ctx context.Context, target string, opts ...DialOption) (cc *cl
 		cc.clientStreams.Store(streamId, cs)
 		logger.Println("[clientConn] use h2c upgrade mode")
 	} else {
-		if er := framer.WriteSettings(http2.Setting{
+		initSettings := []http2.Setting{{
+			ID:  http2.SettingHeaderTableSize,
+			Val: 4096,
+		}, {
+			ID:  http2.SettingInitialWindowSize,
+			Val: 65535,
+		}, {
 			ID:  http2.SettingMaxConcurrentStreams,
 			Val: 100,
-		}); er != nil {
+		}}
+		if er := framer.WriteSettings(initSettings...); er != nil {
 			cc.Close()
 			logger.Printf("[clientConn] write settings failed: %v", er)
 			return nil, er
@@ -172,10 +179,14 @@ func (c *clientConn) do(ctx context.Context, req *http.Request) (*http.Response,
 		return nil, er
 	}
 
-	c.maxConcurrentSemaphore <- struct{}{}
-	defer func() {
-		<-c.maxConcurrentSemaphore
-	}()
+	select {
+	case c.maxConcurrentSemaphore <- struct{}{}:
+		defer func() {
+			<-c.maxConcurrentSemaphore
+		}()
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
 
 	isUpgrade := UpgradeFromContext(ctx)
 	var cs *clientStream
@@ -183,7 +194,7 @@ func (c *clientConn) do(ctx context.Context, req *http.Request) (*http.Response,
 	if isUpgrade {
 		v, ok := c.clientStreams.Load(uint32(1))
 		if !ok {
-			return nil, fmt.Errorf("[clientConn] h2c upgrade client stream not found")
+			return nil, fmt.Errorf("[clientConn] h2c upgrade client stream not found for streamId=1")
 		}
 		cs = v.(*clientStream)
 		defer c.clientStreams.Delete(cs.streamId)

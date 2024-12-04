@@ -199,7 +199,7 @@ func gRPCCall(cmd *cobra.Command, targetURL *url.URL) error {
 }
 
 func newContext(isVerbose, isUpgrade bool) (context.Context, context.CancelFunc) {
-	ctx, cancel := context.WithTimeout(context.Background(), 150*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	if isVerbose {
 		ctx = client.WithVerbose(ctx)
 		traceId := atomic.AddUint32(&traceIdGen, 1)
