@@ -102,14 +102,14 @@ func dialContext(ctx context.Context, target string, opts ...DialOption) (cc *cl
 	}
 
 	framer := http2.NewFramer(conn, conn)
-	ctx, cancel := context.WithCancel(context.Background())
+	gCtx, cancel := context.WithCancel(context.Background())
 	cc = &clientConn{
 		id:                   atomic.AddUint32(&clientConnIdGen, 1),
 		dopts:                dopts,
 		target:               target,
 		conn:                 conn,
 		framer:               framer,
-		serializer:           concurrent.NewCallbackSerializer(ctx),
+		serializer:           concurrent.NewCallbackSerializer(gCtx),
 		cancel:               cancel,
 		maxConcurrentStreams: 1000,
 		settingsAcked:        make(chan struct{}),
@@ -119,16 +119,30 @@ func dialContext(ctx context.Context, target string, opts ...DialOption) (cc *cl
 	cc.encoder = hpack.NewEncoder(&cc.encoderBuf)
 	cc.decoder = hpack.NewDecoder(4096, nil)
 
-	if er := framer.WriteSettings(http2.Setting{
-		ID:  http2.SettingMaxConcurrentStreams,
-		Val: 100,
-	}); er != nil {
-		cc.Close()
-		logger.Printf("[clientConn] write settings failed: %v", er)
-		return nil, er
+	if dopts.h2cUpgrade {
+		streamId := atomic.AddUint32(&cc.streamIdGen, 2) - 1
+		cs := &clientStream{
+			streamId:        streamId,
+			activeAt:        time.Now(),
+			doneCh:          make(chan struct{}),
+			responseHeaders: make(http.Header),
+			trailers:        make(http.Header),
+		}
+		cc.clientStreams.Store(streamId, cs)
+		logger.Println("[clientConn] use h2c upgrade mode")
+	} else {
+		if er := framer.WriteSettings(http2.Setting{
+			ID:  http2.SettingMaxConcurrentStreams,
+			Val: 100,
+		}); er != nil {
+			cc.Close()
+			logger.Printf("[clientConn] write settings failed: %v", er)
+			return nil, er
+		}
+		logger.Println("[clientConn] client write settings")
 	}
-	logger.Println("[clientConn] client write settings")
-	go cc.readLoop(ctx)
+
+	go cc.readLoop(gCtx)
 
 	select {
 	case <-cc.settingsAcked:
@@ -143,7 +157,7 @@ func dialContext(ctx context.Context, target string, opts ...DialOption) (cc *cl
 	}
 }
 
-func (c *clientConn) do(ctx context.Context, req *http.Request) (res *http.Response, err error) {
+func (c *clientConn) do(ctx context.Context, req *http.Request) (*http.Response, error) {
 	c.verbose("[%s] start request", req.URL)
 	defer c.verbose("[%s] end request", req.URL)
 
@@ -163,15 +177,26 @@ func (c *clientConn) do(ctx context.Context, req *http.Request) (res *http.Respo
 		<-c.maxConcurrentSemaphore
 	}()
 
-	cs, err := c.writeHeaders(ctx, req)
-	if err != nil {
-		return nil, err
-	}
-	defer c.clientStreams.Delete(cs.streamId)
-
-	if req.Body != nil {
-		if er := c.writeBody(ctx, cs.streamId, req.Body); er != nil {
-			return nil, er
+	isUpgrade := UpgradeFromContext(ctx)
+	var cs *clientStream
+	var err error
+	if isUpgrade {
+		v, ok := c.clientStreams.Load(uint32(1))
+		if !ok {
+			return nil, fmt.Errorf("[clientConn] h2c upgrade client stream not found")
+		}
+		cs = v.(*clientStream)
+		defer c.clientStreams.Delete(cs.streamId)
+	} else {
+		cs, err = c.writeHeaders(ctx, req)
+		if err != nil {
+			return nil, err
+		}
+		defer c.clientStreams.Delete(cs.streamId)
+		if req.Body != nil {
+			if er := c.writeBody(ctx, cs.streamId, req.Body); er != nil {
+				return nil, er
+			}
 		}
 	}
 
@@ -483,15 +508,22 @@ func (c *clientConn) readFrame(ctx context.Context) error {
 }
 
 func (c *clientConn) processDataFrame(f *http2.DataFrame) error {
-	if v, loaded := c.clientStreams.Load(f.StreamID); loaded {
-		if cs, ok := v.(*clientStream); ok {
-			cs.mu.Lock()
-			defer cs.mu.Unlock()
-			cs.payload.Write(f.Data())
-			if f.StreamEnded() {
-				cs.done()
-			}
-		}
+	v, loaded := c.clientStreams.Load(f.StreamID)
+	if !loaded {
+		log.Printf("Stream %d not found", f.StreamID)
+		return nil
+	}
+	cs, ok := v.(*clientStream)
+	if !ok {
+		log.Printf("Stream %d is not a clientStream", f.StreamID)
+		return nil
+	}
+
+	cs.mu.Lock()
+	defer cs.mu.Unlock()
+	cs.payload.Write(f.Data())
+	if f.StreamEnded() {
+		cs.done()
 	}
 	return nil
 }
@@ -561,6 +593,7 @@ func (c *clientConn) processSettingsFrame(f *http2.SettingsFrame) error {
 		settings := f.Setting(i)
 		if settings.ID == http2.SettingMaxConcurrentStreams {
 			c.maxConcurrentStreams = settings.Val
+			c.settingsAcked <- struct{}{}
 		}
 		c.verbose("\t%+v: %d\n", settings.ID, settings.Val)
 	}

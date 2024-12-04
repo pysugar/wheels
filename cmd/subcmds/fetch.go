@@ -84,10 +84,12 @@ call grpc service: netool fetch --grpc https://localhost:8443/grpc.health.v1.Hea
 			method, _ := cmd.Flags().GetString("method")
 
 			var body io.Reader
+			var contentLength int64 = 0
 			if strings.EqualFold(method, http.MethodPost) || strings.EqualFold(method, http.MethodPut) || strings.EqualFold(method, http.MethodPatch) {
 				data, _ := cmd.Flags().GetString("data")
 				if data != "" {
 					body = strings.NewReader(data)
+					contentLength = int64(len(data))
 				}
 			}
 
@@ -96,6 +98,7 @@ call grpc service: netool fetch --grpc https://localhost:8443/grpc.health.v1.Hea
 				fmt.Printf("failed to create request: %v\n", err)
 				return
 			}
+			req.ContentLength = contentLength
 
 			res, er := client.NewFetcher().Do(ctx, req)
 			if er != nil {
@@ -108,7 +111,7 @@ call grpc service: netool fetch --grpc https://localhost:8443/grpc.health.v1.Hea
 			}
 			fmt.Printf("%s %s\r\n", res.Status, res.Proto)
 			for k, v := range res.Header {
-				fmt.Printf("%s: %s\r\n", k, v)
+				fmt.Printf("%s: %s\r\n", k, strings.Join(v, ","))
 			}
 			fmt.Printf("\r\n")
 			resBody, _ := io.ReadAll(res.Body)

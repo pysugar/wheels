@@ -15,7 +15,7 @@ import (
 	"golang.org/x/net/http2/h2c"
 )
 
-// export GODEBUG=http2debug=1
+// export GODEBUG=http2debug=2
 func main() {
 	mux := http.NewServeMux()
 

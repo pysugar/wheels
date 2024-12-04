@@ -1,24 +1,19 @@
 package client
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	"crypto/tls"
-	"encoding/base64"
 	"errors"
 	"fmt"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/proto"
 	"io"
-	"log"
 	"net"
 	"net/http"
 	"net/url"
 	"strconv"
-	"strings"
-
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
-	"google.golang.org/protobuf/proto"
 )
 
 type (
@@ -207,75 +202,4 @@ func dialConn(addr string, useTLS bool) (net.Conn, error) {
 func hasPort(host string) bool {
 	_, _, err := net.SplitHostPort(host)
 	return err == nil
-}
-
-func sendUpgradeRequestHTTP1(ctx context.Context, conn net.Conn, method string, url *url.URL) error {
-	logger := newVerboseLogger(ctx)
-
-	writer := bufio.NewWriter(conn)
-	requestLine := fmt.Sprintf("%s %s HTTP/1.1\r\n", method, url.RequestURI())
-	logger.Printf("\t> %s", requestLine)
-	if _, err := writer.WriteString(requestLine); err != nil {
-		return err
-	}
-	hostHeader := fmt.Sprintf("Host: %s\r\n", url.Host)
-	logger.Printf("\t> %s", hostHeader)
-	if _, err := writer.WriteString(hostHeader); err != nil {
-		return err
-	}
-	connectionHeader := "Connection: Upgrade, HTTP2-Settings\r\n"
-	logger.Printf("\t> %s", connectionHeader)
-	if _, err := writer.WriteString(connectionHeader); err != nil {
-		return err
-	}
-	upgradeHeader := "Upgrade: h2c\r\n"
-	logger.Printf("\t> %s", upgradeHeader)
-	if _, err := writer.WriteString(upgradeHeader); err != nil {
-		return err
-	}
-
-	settingPayload := []byte{
-		0x00, 0x03, 0x00, 0x00, 0x00, 0x64, // SETTINGS_MAX_CONCURRENT_STREAMS = 100
-	}
-	http2Settings := base64.StdEncoding.EncodeToString(settingPayload)
-	http2SettingsHeader := fmt.Sprintf("HTTP2-Settings: %s\r\n", http2Settings)
-	logger.Printf("\t> %s", http2SettingsHeader)
-	if _, err := writer.WriteString(http2SettingsHeader); err != nil {
-		return err
-	}
-	if _, err := writer.WriteString("\r\n"); err != nil {
-		return err
-	}
-	logger.Printf("\t> \r\n")
-	return writer.Flush()
-}
-
-func readUpgradeResponse(ctx context.Context, conn net.Conn) (bool, error) {
-	logger := newVerboseLogger(ctx)
-
-	reader := bufio.NewReader(conn)
-	statusLine, err := reader.ReadString('\n')
-	if err != nil {
-		return false, err
-	}
-
-	logger.Printf("\t< %s", statusLine)
-	if !strings.Contains(statusLine, "101 Switching Protocols") {
-		log.Printf("Fail upgraded to HTTP/2 (h2c) >\n")
-		return false, nil
-	}
-
-	for {
-		line, er := reader.ReadString('\n')
-		if er != nil {
-			return false, er
-		}
-		logger.Printf("\t< %s", line)
-		if strings.TrimSpace(line) == "" {
-			break
-		}
-	}
-
-	logger.Printf("Successfully upgraded to HTTP/2 (h2c) >\n")
-	return true, nil
 }

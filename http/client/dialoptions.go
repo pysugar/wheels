@@ -10,6 +10,7 @@ type dialOptions struct {
 	// authority string
 	useTLS      bool
 	sendPreface bool
+	h2cUpgrade  bool
 	timeout     time.Duration
 	verbose     bool
 	conn        net.Conn
@@ -34,6 +35,12 @@ func WithTLS() DialOption {
 func DisableSendPreface() DialOption {
 	return func(o *dialOptions) {
 		o.sendPreface = false
+	}
+}
+
+func WithH2CUpgrade() DialOption {
+	return func(o *dialOptions) {
+		o.h2cUpgrade = true
 	}
 }
 
