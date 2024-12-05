@@ -24,9 +24,8 @@ func SimpleH2cHandler(h http.HandlerFunc) http.HandlerFunc {
 			BaseConfig: &http.Server{
 				Handler: h,
 			},
-			Handler: h,
-			// todo here is a bug for golang.org/x/net/http2/h2c
-			// UpgradeRequest: r,
+			Handler:        h,
+			UpgradeRequest: r,
 		})
 	}
 }

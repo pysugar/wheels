@@ -1,3 +1,5 @@
+//go:build simpleserver
+
 package main
 
 import (

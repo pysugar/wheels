@@ -25,6 +25,23 @@ var (
 	gorillaCtxKey  = &contextKey{"gorilla"}
 )
 
+func (hp HttpProtocol) String() string {
+	switch hp {
+	case HTTP2:
+		return "HTTP2"
+	case HTTP1:
+		return "HTTP1"
+	case HTTP10:
+		return "HTTP10"
+	case HTTP11:
+		return "HTTP11"
+	case WebSocket:
+		return "WebSocket"
+	default:
+		return "Unknown"
+	}
+}
+
 func WithProtocol(ctx context.Context, protocol HttpProtocol) context.Context {
 	return context.WithValue(ctx, protocolCtxKey, protocol)
 }

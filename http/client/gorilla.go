@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -23,7 +24,7 @@ func (f *fetcher) doGorilla(ctx context.Context, req *http.Request) error {
 	}
 
 	logger := newVerboseLogger(ctx)
-	conn, resp, err := websocket.DefaultDialer.Dial(serverAddr, req.Header)
+	conn, resp, err := websocket.DefaultDialer.DialContext(ctx, serverAddr, req.Header)
 	if err != nil {
 		logger.Printf("[%s] websocket dial error: %v", serverAddr, err)
 		return err
@@ -31,26 +32,35 @@ func (f *fetcher) doGorilla(ctx context.Context, req *http.Request) error {
 	defer conn.Close()
 
 	logger.Println("Success to connect to WebSocket Server")
-
 	if resp != nil {
 		defer resp.Body.Close()
 		logger.Printf("Response: %s", extensions.FormatResponse(resp))
 	}
 
+	gCtx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	messageChannel := make(chan string, 10)
-	go f.wsGorillaLoop(ctx, conn, messageChannel)
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go f.wsGorillaLoop(gCtx, conn, messageChannel, &wg)
 	reader := bufio.NewReader(os.Stdin)
 	for {
 		fmt.Print("Please input message: ")
 		msg, _ := reader.ReadString('\n')
+		msg = strings.TrimSpace(msg)
+		if msg == ":quit" || msg == ":exit" {
+			cancel()
+		}
 		if er := conn.WriteMessage(websocket.TextMessage, []byte(msg)); er != nil {
 			log.Printf("send message failure: %v", er)
 			return er
 		}
 
 		select {
-		case <-ctx.Done():
-			return ctx.Err()
+		case <-gCtx.Done():
+			wg.Wait()
+			log.Printf("websocket exit success")
+			return nil
 		case m, ok := <-messageChannel:
 			if !ok {
 				return nil
@@ -62,11 +72,13 @@ func (f *fetcher) doGorilla(ctx context.Context, req *http.Request) error {
 	}
 }
 
-func (f *fetcher) wsGorillaLoop(ctx context.Context, conn *websocket.Conn, ch chan<- string) {
+func (f *fetcher) wsGorillaLoop(ctx context.Context, conn *websocket.Conn, ch chan<- string, wg *sync.WaitGroup) {
 	defer close(ch)
+	defer wg.Done()
 	for {
 		select {
 		case <-ctx.Done():
+			log.Printf("read loop context done")
 			return
 		default:
 			mt, msg, err := conn.ReadMessage()

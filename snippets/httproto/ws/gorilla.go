@@ -2,6 +2,8 @@ package ws
 
 import (
 	"context"
+	"errors"
+	"io"
 	"log"
 	"net/http"
 
@@ -15,7 +17,7 @@ var upgrader = websocket.Upgrader{
 }
 
 func GorillaEchoHandler(w http.ResponseWriter, r *http.Request) {
-	conn, err := upgrader.Upgrade(w, r, nil)
+	conn, err := upgrader.Upgrade(w, r, http.Header{"Server-sid": {"gorilla-echo"}})
 	if err != nil {
 		log.Printf("WebSocket Upgrade failure: %v", err)
 		return
@@ -36,7 +38,11 @@ loop:
 		default:
 			messageType, message, err := conn.ReadMessage()
 			if err != nil {
-				log.Printf("Receive message failure: %v", err)
+				if errors.Is(err, io.EOF) {
+					log.Println("Client close connection for Gorilla")
+				} else {
+					log.Printf("Receive message failure：%v", err)
+				}
 				break loop
 			}
 			log.Printf("Receive message: %s", message)

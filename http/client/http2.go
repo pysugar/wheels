@@ -34,17 +34,20 @@ func (f *fetcher) doHTTP2(ctx context.Context, req *http.Request) (*http.Respons
 		logger.Printf("[%s] try http2 direct failure: %v", req.URL.RequestURI(), err)
 	}
 
+	logger.Printf("<<< [%s] fetcher try http2 upgrade", req.URL.RequestURI())
 	cc, err := f.tryHTTP2Upgrade(ctx, req)
 	if errors.As(err, &netOpErr) {
-		logger.Printf("[%s] try http2 upgrade failure: %v", req.URL.RequestURI(), netOpErr)
+		logger.Printf("[%s] try http2 upgrade failure: %v >>>", req.URL.RequestURI(), netOpErr)
 		return nil, netOpErr
 	}
 
 	if err == nil && cc != nil {
-		logger.Printf("try http2 upgrade success: %v", req.URL.RequestURI())
+		logger.Printf("try http2 upgrade success: %v >>>", req.URL.RequestURI())
+		ctx = WithUpgrade(ctx)
 		return cc.do(ctx, req)
 	}
 
+	logger.Printf("[%s] try http2 upgrade failure: %v >>>", req.URL.RequestURI(), err)
 	return nil, ErrHTTP2Unsupported
 }
 
@@ -54,6 +57,7 @@ func (f *fetcher) tryHTTP2Direct(ctx context.Context, req *http.Request) (*clien
 		return nil, err
 	}
 
+	// Handle h2c with prior knowledge (RFC 7540 Section 3.4)
 	if _, er := conn.Write(clientPreface); er != nil {
 		conn.Close()
 		return nil, fmt.Errorf("[%s] Failed to connect using HTTP/2 Prior Knowledge: %v", req.URL.RequestURI(), er)

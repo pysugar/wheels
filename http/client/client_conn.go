@@ -161,6 +161,8 @@ func dialContext(ctx context.Context, target string, opts ...DialOption) (cc *cl
 		return nil, fmt.Errorf("[clientConn] timeout waiting for settings ack")
 	case <-ctx.Done():
 		return nil, ctx.Err()
+	case <-gCtx.Done():
+		return nil, gCtx.Err()
 	}
 }
 
