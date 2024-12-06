@@ -1,5 +1,3 @@
-//go:build simpleserver
-
 package main
 
 import (
@@ -9,7 +7,7 @@ import (
 	"strings"
 
 	"github.com/pysugar/wheels/http/extensions"
-	"github.com/pysugar/wheels/snippets/httproto/http2"
+	"github.com/pysugar/wheels/snippets/httproto/h2c"
 	"github.com/pysugar/wheels/snippets/httproto/tls10"
 	"github.com/pysugar/wheels/snippets/httproto/ws"
 )
@@ -21,7 +19,7 @@ func main() {
 		if strings.Contains(strings.ToLower(upgradeHeader), "websocket") {
 			ws.SimpleEchoHandler(w, r)
 		} else if strings.Contains(strings.ToLower(upgradeHeader), "h2c") {
-			http2.SimpleH2cHandler(func(w http.ResponseWriter, r *http.Request) {
+			h2c.SimpleH2cHandler(func(w http.ResponseWriter, r *http.Request) {
 				log.Printf("[h2c] %s %s %s", r.RemoteAddr, r.Method, r.URL)
 				fmt.Fprintln(w, "Has already upgrade to HTTP/2")
 			}).ServeHTTP(w, r)

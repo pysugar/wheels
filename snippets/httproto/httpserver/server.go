@@ -8,7 +8,7 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/pysugar/wheels/http/extensions"
-	"github.com/pysugar/wheels/snippets/httproto/http2"
+	"github.com/pysugar/wheels/snippets/httproto/h2c"
 	"github.com/pysugar/wheels/snippets/httproto/ws"
 )
 
@@ -44,11 +44,12 @@ func main() {
 	})
 
 	// netool fetch --verbose http://127.0.0.1:8080/h2c
+	// netool fetch --http1 --verbose http://127.0.0.1:8080/h2c
 	// netool fetch --http2 --verbose http://127.0.0.1:8080/h2c
 	// netool fetch --upgrade--verbose http://127.0.0.1:8080/h2c
 	// netool fetch --upgrade --http2 --verbose http://127.0.0.1:8080/h2c
 	// netool fetch --upgrade --http2 --method=POST --verbose http://127.0.0.1:8080/h2c
-	h2cHandler := http2.SimpleH2cHandler(extensions.DebugHandler)
+	h2cHandler := h2c.SimpleH2cHandler(extensions.DebugHandler)
 	mux.HandleFunc("/h2c", func(w http.ResponseWriter, r *http.Request) {
 		if strings.ToLower(r.Header.Get("Upgrade")) == "h2c" {
 			h2cHandler.ServeHTTP(w, r)
@@ -60,7 +61,7 @@ func main() {
 	// netool fetch --verbose http://127.0.0.1:8080/http2
 	// netool fetch --http1 --verbose http://127.0.0.1:8080/http2
 	// netool fetch --http2 --verbose http://127.0.0.1:8080/http2
-	h2Handler := extensions.LoggingMiddleware(http2.NewH2CHandler(extensions.DebugHandler))
+	h2Handler := extensions.LoggingMiddleware(h2c.NewH2CHandler(extensions.DebugHandler))
 	mux.HandleFunc("/http2", func(w http.ResponseWriter, r *http.Request) {
 		h2Handler.ServeHTTP(w, r)
 	})

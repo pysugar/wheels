@@ -9,21 +9,23 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/pysugar/wheels/http/extensions"
 	"github.com/pysugar/wheels/snippets/httproto/grpc"
-	h2 "github.com/pysugar/wheels/snippets/httproto/http2"
 	"github.com/pysugar/wheels/snippets/httproto/ws"
 	"golang.org/x/net/http2"
 	"golang.org/x/net/http2/h2c"
 )
 
-// export GODEBUG=http2debug=2
+// export GODEBUG=http2debug=1
+// GODEBUG=http2debug=2 go run server.go
 func main() {
 	mux := http.NewServeMux()
 
+	// netool fetch --verbose http://127.0.0.1:8080/health
 	// netool fetch --http1 --verbose http://127.0.0.1:8080/health
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintln(w, "OK")
 	})
 
+	// x/net/websocket not support gorilla client
 	// netool fetch --websocket --verbose http://127.0.0.1:8080/websocket
 	mux.HandleFunc("/websocket", func(w http.ResponseWriter, r *http.Request) {
 		if strings.ToLower(r.Header.Get("Upgrade")) == "websocket" {
@@ -33,6 +35,7 @@ func main() {
 		}
 	})
 
+	// netool fetch --websocket --verbose http://127.0.0.1:8080/ws
 	// netool fetch --gorilla --verbose http://127.0.0.1:8080/ws
 	mux.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
 		if strings.ToLower(r.Header.Get("Upgrade")) == "websocket" {
@@ -42,11 +45,12 @@ func main() {
 		}
 	})
 
+	// netool fetch --verbose http://127.0.0.1:8080/h2c
 	// netool fetch --http1 --verbose http://127.0.0.1:8080/h2c
 	// netool fetch --http2 --verbose http://127.0.0.1:8080/h2c
 	// netool fetch --http2 --verbose --method=POST  http://127.0.0.1:8080/h2c
-	// netool fetch --upgrade --verbose --http2 http://127.0.0.1:8080/h2c
-	// netool fetch --upgrade --http2 --method=POST --verbose http://127.0.0.1:8080/h2c
+	// netool fetch --upgrade --verbose http://127.0.0.1:8080/h2c
+	// netool fetch --upgrade --method=POST --verbose http://127.0.0.1:8080/h2c
 	h2cHandler := http.HandlerFunc(extensions.DebugHandler)
 	mux.HandleFunc("/h2c", func(w http.ResponseWriter, r *http.Request) {
 		if strings.ToLower(r.Header.Get("Upgrade")) == "h2c" {
@@ -56,14 +60,17 @@ func main() {
 		}
 	})
 
+	// netool fetch --verbose http://127.0.0.1:8080/http2
+	// netool fetch --http1 --verbose http://127.0.0.1:8080/http2
 	// netool fetch --http2 --verbose http://127.0.0.1:8080/http2
-	http2Handler := h2.NewH2CHandler(extensions.DebugHandler)
+	// netool fetch --upgrade --verbose http://127.0.0.1:8080/http2
+	http2Handler := http.HandlerFunc(extensions.DebugHandler)
 	mux.HandleFunc("/http2", func(w http.ResponseWriter, r *http.Request) {
 		http2Handler.ServeHTTP(w, r)
 	})
 
-	echoHandler := grpc.NewEchoHandler()
 	// netool fetch --grpc --verbose http://localhost:8080/grpc/proto.EchoService/Echo --proto-path=../grpc/proto/echo.proto -d'{"message": "netool"}'
+	echoHandler := grpc.NewEchoHandler()
 	mux.HandleFunc("/grpc/", func(w http.ResponseWriter, r *http.Request) {
 		originalPath := r.URL.Path
 		r.URL.Path = strings.TrimPrefix(r.URL.Path, "/grpc")
@@ -73,6 +80,7 @@ func main() {
 		echoHandler.ServeHTTP(w, r)
 	})
 
+	// netool fetch --verbose http://127.0.0.1:8080/metrics
 	// netool fetch --http1 --verbose http://127.0.0.1:8080/metrics
 	// netool fetch --http2 --verbose http://127.0.0.1:8080/metrics
 	mux.Handle("/metrics", promhttp.Handler())

@@ -56,7 +56,6 @@ call grpc service: netool fetch --grpc https://localhost:8443/grpc.health.v1.Hea
 				if err != nil {
 					log.Fatal(err)
 				}
-				time.Sleep(time.Second)
 				return
 			}
 
@@ -67,7 +66,6 @@ call grpc service: netool fetch --grpc https://localhost:8443/grpc.health.v1.Hea
 				if err != nil {
 					log.Fatal(err)
 				}
-				time.Sleep(time.Second)
 				return
 			}
 
