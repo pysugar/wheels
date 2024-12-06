@@ -2,9 +2,6 @@ package main
 
 import (
 	"fmt"
-	"github.com/pysugar/wheels/http/extensions"
-	"golang.org/x/net/http2"
-	"golang.org/x/net/http2/h2c"
 	"log"
 	"net/http"
 	"os"
@@ -14,6 +11,9 @@ import (
 	grpcprometheus "github.com/grpc-ecosystem/go-grpc-prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/pysugar/wheels/grpc/interceptors"
+	"github.com/pysugar/wheels/http/extensions"
+	"golang.org/x/net/http2"
+	"golang.org/x/net/http2/h2c"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/channelz/service"
 	"google.golang.org/grpc/grpclog"

@@ -25,6 +25,7 @@ func (s *server) Echo(ctx context.Context, req *pb.EchoRequest) (*pb.EchoRespons
 	log.Printf("Received message from client: %s", req.Message)
 	return &pb.EchoResponse{Message: req.Message}, nil
 }
+
 func NewEchoHandler() http.HandlerFunc {
 	kaParams := keepalive.ServerParameters{
 		MaxConnectionIdle:     5 * time.Minute,
