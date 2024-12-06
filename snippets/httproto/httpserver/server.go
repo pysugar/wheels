@@ -13,6 +13,7 @@ import (
 )
 
 // export GODEBUG=http2debug=2
+// GODEBUG=http2debug=2 go run server.go
 func main() {
 	mux := http.NewServeMux()
 
@@ -20,16 +21,6 @@ func main() {
 	// netool fetch --http1 --verbose http://127.0.0.1:8080/health
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintln(w, "OK")
-	})
-
-	// netool fetch --websocket --verbose http://127.0.0.1:8080/ws
-	// netool fetch --gorilla --verbose http://127.0.0.1:8080/ws
-	mux.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
-		if strings.ToLower(r.Header.Get("Upgrade")) == "websocket" {
-			ws.GorillaEchoHandler(w, r)
-		} else {
-			http.Error(w, "Unsupported upgrade protocol", http.StatusUpgradeRequired)
-		}
 	})
 
 	// x/net/websocket not support gorilla client
@@ -42,6 +33,19 @@ func main() {
 		}
 	})
 
+	// netool fetch --websocket --verbose http://127.0.0.1:8080/ws
+	// netool fetch --gorilla --verbose http://127.0.0.1:8080/ws
+	mux.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
+		if strings.ToLower(r.Header.Get("Upgrade")) == "websocket" {
+			ws.GorillaEchoHandler(w, r)
+		} else {
+			http.Error(w, "Unsupported upgrade protocol", http.StatusUpgradeRequired)
+		}
+	})
+
+	// netool fetch --verbose http://127.0.0.1:8080/h2c
+	// netool fetch --http2 --verbose http://127.0.0.1:8080/h2c
+	// netool fetch --upgrade--verbose http://127.0.0.1:8080/h2c
 	// netool fetch --upgrade --http2 --verbose http://127.0.0.1:8080/h2c
 	// netool fetch --upgrade --http2 --method=POST --verbose http://127.0.0.1:8080/h2c
 	h2cHandler := http2.SimpleH2cHandler(extensions.DebugHandler)
@@ -53,7 +57,8 @@ func main() {
 		}
 	})
 
-	// netool fetch --http2 --upgrade --verbose http://127.0.0.1:8080/http2
+	// netool fetch --verbose http://127.0.0.1:8080/http2
+	// netool fetch --http1 --verbose http://127.0.0.1:8080/http2
 	// netool fetch --http2 --verbose http://127.0.0.1:8080/http2
 	h2Handler := extensions.LoggingMiddleware(http2.NewH2CHandler(extensions.DebugHandler))
 	mux.HandleFunc("/http2", func(w http.ResponseWriter, r *http.Request) {
@@ -61,6 +66,7 @@ func main() {
 	})
 
 	// netool fetch --verbose http://127.0.0.1:8080/metrics
+	// netool fetch --http1 --verbose http://127.0.0.1:8080/metrics
 	mux.Handle("/metrics", promhttp.Handler())
 
 	server := &http.Server{
