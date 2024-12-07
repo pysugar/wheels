@@ -32,13 +32,14 @@ Flags:
 
 Use "netool [command] --help" for more information about a command.
 
-$ netool help fetch                                                                                                                                              
+$ netool help fetch                                                                                                                                      2:29:05 
+
 fetch http2 response from url
 
 fetch http2 response from url: netool fetch https://www.google.com
 call grpc service: netool fetch --grpc https://localhost:8443/grpc.health.v1.Health/Check
 call grpc via context path: netool fetch --grpc http://localhost:8080/grpc/grpc.health.v1.Health/Check
-call grpc service: netool fetch --grpc https://localhost:8443/grpc.health.v1.Health/Check --proto-path=health.proto -d'{"service": "echoservice"}'
+call grpc service: netool fetch --grpc https://localhost:8443/grpc.health.v1.Health/Check --proto-path=health.proto -d'{"service": ""}'
 
 Usage:
   netool fetch https://www.google.com [flags]
@@ -46,12 +47,17 @@ Usage:
 Flags:
   -d, --data string         request data (default "{}")
   -G, --grpc                Is GRPC Request Or Not
+  -H, --header strings      HTTP Header
   -h, --help                help for fetch
-  -H, --http2               Is HTTP2 Request Or Not
+      --http1               Is HTTP1 Request Or Not
+      --http2               Is HTTP2 Request Or Not
+  -i, --insecure            Skip server certificate and domain verification (skip TLS)
   -M, --method string       HTTP Method (default "GET")
   -P, --proto-path string   Proto Path
+  -U, --upgrade             try http upgrade
   -A, --user-agent string   User Agent
   -V, --verbose             Verbose mode
+  -W, --websocket           Is WebSocket Request Or Not
 
 $ netool help grpc                                                                                                                                              
 call grpc service
