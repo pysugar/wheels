@@ -14,7 +14,8 @@ $ curl -i -k https://127.0.0.1:8443/metrics
 $ netool fetch --verbose https://127.0.0.1:8443/health
 $ netool fetch --verbose https://127.0.0.1:8443/metrics
 
-$ netool fetch --websocket --verbose https://127.0.0.1:8443/websocket
+$ netool fetch --websocket --insecure --verbose https://127.0.0.1:8443/ws
+$ netool fetch --gorilla --insecure --verbose https://127.0.0.1:8443/ws
 
 $ netool fetch --grpc --verbose https://localhost:8443/grpc/proto.EchoService/Echo --proto-path=../grpc/proto/echo.proto -d'{"message": "netool"}'
 ```

@@ -3,6 +3,7 @@ package client
 import (
 	"bufio"
 	"context"
+	"crypto/tls"
 	"fmt"
 	"log"
 	"net/http"
@@ -31,6 +32,14 @@ func (f *fetcher) doWebsocket(ctx context.Context, req *http.Request) error {
 	if err != nil {
 		return err
 	}
+
+	if InsecureFromContext(ctx) {
+		wsCfg.TlsConfig = &tls.Config{
+			InsecureSkipVerify: true,
+		}
+		log.Printf("[%s] insecure skip verify", serverAddr)
+	}
+
 	conn, err := wsCfg.DialContext(ctx)
 	if err != nil {
 		return err

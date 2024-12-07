@@ -132,18 +132,22 @@ func init() {
 	fetchCmd.Flags().BoolP("verbose", "V", false, "Verbose mode")
 	fetchCmd.Flags().BoolP("upgrade", "U", false, "try http upgrade")
 	fetchCmd.Flags().StringP("proto-path", "P", "", "Proto Path")
+	fetchCmd.Flags().BoolP("insecure", "i", false, "Skip server certificate and domain verification (skip TLS)")
 	base.AddSubCommands(fetchCmd)
 }
 
 func wsCall(cmd *cobra.Command, targetURL *url.URL, isGorilla bool) error {
 	isVerbose, _ := cmd.Flags().GetBool("verbose")
+	isInsecure, _ := cmd.Flags().GetBool("insecure")
 	ctx, cancel := newContext(isVerbose, true)
 	defer cancel()
 	ctx = client.WithProtocol(ctx, client.WebSocket)
 	if isGorilla {
 		ctx = client.WithGorilla(ctx)
 	}
-
+	if isInsecure {
+		ctx = client.WithInsecure(ctx)
+	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, targetURL.String(), nil)
 	if err != nil {
 		fmt.Printf("failed to create request: %v\n", err)

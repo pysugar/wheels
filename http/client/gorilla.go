@@ -3,6 +3,7 @@ package client
 import (
 	"bufio"
 	"context"
+	"crypto/tls"
 	"fmt"
 	"log"
 	"net/http"
@@ -16,15 +17,27 @@ import (
 )
 
 func (f *fetcher) doGorilla(ctx context.Context, req *http.Request) error {
+	logger := newVerboseLogger(ctx)
 	var serverAddr string
+	var dialer *websocket.Dialer
 	if strings.EqualFold(req.URL.Scheme, "https") {
 		serverAddr = fmt.Sprintf("wss://%s%s", req.URL.Host, req.URL.RequestURI())
+		if InsecureFromContext(ctx) {
+			dialer = &websocket.Dialer{
+				TLSClientConfig: &tls.Config{
+					InsecureSkipVerify: true,
+				},
+			}
+			logger.Printf("[%s] insecure skip verify", serverAddr)
+		} else {
+			dialer = websocket.DefaultDialer
+		}
 	} else {
 		serverAddr = fmt.Sprintf("ws://%s%s", req.URL.Host, req.URL.RequestURI())
+		dialer = websocket.DefaultDialer
 	}
 
-	logger := newVerboseLogger(ctx)
-	conn, resp, err := websocket.DefaultDialer.DialContext(ctx, serverAddr, req.Header)
+	conn, resp, err := dialer.DialContext(ctx, serverAddr, req.Header)
 	if err != nil {
 		logger.Printf("[%s] websocket dial error: %v", serverAddr, err)
 		return err

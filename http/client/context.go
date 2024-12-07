@@ -23,6 +23,7 @@ var (
 	verboseCtxKey  = &contextKey{"verbose"}
 	upgradeCtxKey  = &contextKey{"upgrade"}
 	gorillaCtxKey  = &contextKey{"gorilla"}
+	insecureCtxKey = &contextKey{"insecure"}
 )
 
 func (hp HttpProtocol) String() string {
@@ -58,6 +59,10 @@ func WithGorilla(ctx context.Context) context.Context {
 	return context.WithValue(ctx, gorillaCtxKey, true)
 }
 
+func WithInsecure(ctx context.Context) context.Context {
+	return context.WithValue(ctx, insecureCtxKey, true)
+}
+
 func ProtocolFromContext(ctx context.Context) HttpProtocol {
 	if protocol, ok := ctx.Value(protocolCtxKey).(HttpProtocol); ok {
 		return protocol
@@ -77,5 +82,10 @@ func UpgradeFromContext(ctx context.Context) bool {
 
 func GorillaFromContext(ctx context.Context) bool {
 	_, ok := ctx.Value(gorillaCtxKey).(bool)
+	return ok
+}
+
+func InsecureFromContext(ctx context.Context) bool {
+	_, ok := ctx.Value(insecureCtxKey).(bool)
 	return ok
 }
