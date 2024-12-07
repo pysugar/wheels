@@ -82,9 +82,10 @@ call grpc service: netool fetch --grpc https://localhost:8443/grpc.health.v1.Hea
 				ctx = client.WithProtocol(ctx, client.HTTP2)
 			}
 			method, _ := cmd.Flags().GetString("method")
+			headers, _ := cmd.Flags().GetStringSlice("header")
 
 			var body io.Reader
-			var contentLength int64 = 0
+			var contentLength int64 = -1
 			if strings.EqualFold(method, http.MethodPost) || strings.EqualFold(method, http.MethodPut) || strings.EqualFold(method, http.MethodPatch) {
 				data, _ := cmd.Flags().GetString("data")
 				if data != "" {
@@ -97,6 +98,19 @@ call grpc service: netool fetch --grpc https://localhost:8443/grpc.health.v1.Hea
 			if err != nil {
 				fmt.Printf("failed to create request: %v\n", err)
 				return
+			}
+			if len(headers) > 0 {
+				for _, h := range headers {
+					parts := strings.Split(h, ":")
+					if len(parts) != 2 {
+						log.Printf("invalid header: %s\n", h)
+						continue
+					}
+					if isVerbose {
+						fmt.Printf("set header %s: %s\n", parts[0], parts[1])
+					}
+					req.Header.Add(parts[0], parts[1])
+				}
 			}
 			req.ContentLength = contentLength
 
@@ -123,8 +137,9 @@ call grpc service: netool fetch --grpc https://localhost:8443/grpc.health.v1.Hea
 func init() {
 	fetchCmd.Flags().StringP("user-agent", "A", "", "User Agent")
 	fetchCmd.Flags().StringP("method", "M", "GET", "HTTP Method")
+	fetchCmd.Flags().StringSliceP("header", "H", nil, "HTTP Header")
 	fetchCmd.Flags().StringP("data", "d", "{}", "request data")
-	fetchCmd.Flags().BoolP("http1", "", false, "Is HTTP2 Request Or Not")
+	fetchCmd.Flags().BoolP("http1", "", false, "Is HTTP1 Request Or Not")
 	fetchCmd.Flags().BoolP("http2", "", false, "Is HTTP2 Request Or Not")
 	fetchCmd.Flags().BoolP("websocket", "W", false, "Is WebSocket Request Or Not")
 	fetchCmd.Flags().BoolP("gorilla", "g", false, "Is Gorilla WebSocket Request Or Not")

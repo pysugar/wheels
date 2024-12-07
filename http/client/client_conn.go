@@ -50,6 +50,7 @@ type (
 		mu              sync.Mutex
 		doneCh          chan struct{}
 		doneOnce        sync.Once
+		sse             bool // Server-Sent Events
 	}
 
 	clientConn struct {
@@ -190,6 +191,11 @@ func (c *clientConn) do(ctx context.Context, req *http.Request) (*http.Response,
 		return nil, ctx.Err()
 	}
 
+	isSSE := false
+	acceptHeader := req.Header.Get("Accept")
+	if len(acceptHeader) > 0 && strings.Contains(acceptHeader, "text/event-stream") {
+		isSSE = true
+	}
 	isUpgrade := UpgradeFromContext(ctx)
 	var cs *clientStream
 	var err error
@@ -212,6 +218,7 @@ func (c *clientConn) do(ctx context.Context, req *http.Request) (*http.Response,
 			}
 		}
 	}
+	cs.sse = isSSE
 
 	select {
 	case <-cs.doneCh:
@@ -534,7 +541,13 @@ func (c *clientConn) processDataFrame(f *http2.DataFrame) error {
 
 	cs.mu.Lock()
 	defer cs.mu.Unlock()
-	cs.payload.Write(f.Data())
+
+	if cs.sse {
+		fmt.Printf("sse: %s", f.Data())
+	} else {
+		cs.payload.Write(f.Data())
+	}
+
 	if f.StreamEnded() {
 		cs.done()
 	}
@@ -576,6 +589,11 @@ func (c *clientConn) processHeaderFrame(f *http2.HeadersFrame) error {
 			if hf.Name == ":status" {
 				if statusCode, er := strconv.Atoi(hf.Value); er == nil {
 					cs.statusCode = statusCode
+				}
+			}
+			if hf.Name == "content-type" && hf.Value == "text/event-stream" {
+				if !cs.sse {
+					cs.sse = true
 				}
 			}
 		}
