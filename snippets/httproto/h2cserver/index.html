@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>SSE Test</title>
+</head>
+<body>
+<script>
+    const evtSource = new EventSource('http://localhost:8080/sse');
+    evtSource.onmessage = function(e) {
+        console.log("Received data: ", e.data);
+    };
+
+    const ws = new WebSocket("ws://localhost:8080/ws");
+    ws.onopen = function() {
+        console.log("WebSocket connection opened");
+        // 向服务端发送消息
+        ws.send("Hello from the browser!");
+    };
+    ws.onmessage = function(event) {
+        console.log("Received message from server:", event.data);
+    };
+    ws.onclose = function() {
+        console.log("WebSocket connection closed");
+    };
+    ws.onerror = function(error) {
+        console.log("WebSocket error:", error);
+    };
+</script>
+</body>
+</html>
