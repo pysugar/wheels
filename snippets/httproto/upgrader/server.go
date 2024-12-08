@@ -32,7 +32,7 @@ func main() {
 	// ./netool fetch --upgrade --verbose http://localhost:8080?simple=1
 	// ./netool fetch --websocket --verbose http://localhost:8080
 	// ./netool fetch --websocket --verbose http://localhost:8080?gorilla=1
-	// ./netool fetch --gorilla --verbose http://localhost:8080?gorilla=1
+	// ./netool fetch --ws --verbose http://localhost:8080?gorilla=1
 	handlerFunc := func(w http.ResponseWriter, r *http.Request) {
 		upgradeHeader := r.Header.Get("Upgrade")
 		if strings.Contains(strings.ToLower(upgradeHeader), "websocket") {

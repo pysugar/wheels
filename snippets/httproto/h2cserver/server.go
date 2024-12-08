@@ -36,7 +36,7 @@ func main() {
 	})
 
 	// netool fetch --websocket --verbose http://127.0.0.1:8080/ws
-	// netool fetch --gorilla --verbose http://127.0.0.1:8080/ws
+	// netool fetch --ws --verbose http://127.0.0.1:8080/ws
 	mux.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
 		if strings.ToLower(r.Header.Get("Upgrade")) == "websocket" {
 			ws.GorillaEchoHandler(w, r)

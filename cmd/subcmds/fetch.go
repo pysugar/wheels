@@ -60,7 +60,7 @@ call grpc service: netool fetch --grpc https://localhost:8443/grpc.health.v1.Hea
 			}
 
 			isWS, _ := cmd.Flags().GetBool("websocket")
-			isGorilla, _ := cmd.Flags().GetBool("gorilla")
+			isGorilla, _ := cmd.Flags().GetBool("ws")
 			if isWS || isGorilla {
 				err := wsCall(cmd, targetURL, isGorilla)
 				if err != nil {
@@ -142,7 +142,7 @@ func init() {
 	fetchCmd.Flags().BoolP("http1", "", false, "Is HTTP1 Request Or Not")
 	fetchCmd.Flags().BoolP("http2", "", false, "Is HTTP2 Request Or Not")
 	fetchCmd.Flags().BoolP("websocket", "W", false, "Is WebSocket Request Or Not")
-	fetchCmd.Flags().BoolP("gorilla", "g", false, "Is Gorilla WebSocket Request Or Not")
+	fetchCmd.Flags().BoolP("ws", "", false, "Use gorilla client for websocket")
 	fetchCmd.Flags().BoolP("grpc", "G", false, "Is GRPC Request Or Not")
 	fetchCmd.Flags().BoolP("verbose", "V", false, "Verbose mode")
 	fetchCmd.Flags().BoolP("upgrade", "U", false, "try http upgrade")
