@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"github.com/pysugar/wheels/snippets/httproto/sse"
 	"log"
 	"net/http"
 	"os"
@@ -60,6 +61,8 @@ func main() {
 			extensions.DebugHandler(w, r)
 		}
 	})
+
+	mux.HandleFunc("/sse", sse.SSEHandler)
 
 	server := &http.Server{
 		Addr:    ":8443",

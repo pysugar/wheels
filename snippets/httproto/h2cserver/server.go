@@ -9,6 +9,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/pysugar/wheels/http/extensions"
 	"github.com/pysugar/wheels/snippets/httproto/grpc"
+	"github.com/pysugar/wheels/snippets/httproto/sse"
 	"github.com/pysugar/wheels/snippets/httproto/ws"
 	"golang.org/x/net/http2"
 	"golang.org/x/net/http2/h2c"
@@ -84,6 +85,8 @@ func main() {
 	// netool fetch --http1 --verbose http://127.0.0.1:8080/metrics
 	// netool fetch --http2 --verbose http://127.0.0.1:8080/metrics
 	mux.Handle("/metrics", promhttp.Handler())
+
+	mux.HandleFunc("/sse", sse.SSEHandler)
 
 	h2s := &http2.Server{}
 	handler := h2c.NewHandler(extensions.LoggingMiddleware(mux), h2s)

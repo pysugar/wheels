@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"github.com/pysugar/wheels/snippets/httproto/sse"
 	"log"
 	"net/http"
 	"strings"
@@ -65,6 +66,8 @@ func main() {
 	mux.HandleFunc("/http2", func(w http.ResponseWriter, r *http.Request) {
 		h2Handler.ServeHTTP(w, r)
 	})
+
+	mux.HandleFunc("/sse", sse.SSEHandler)
 
 	// netool fetch --verbose http://127.0.0.1:8080/metrics
 	// netool fetch --http1 --verbose http://127.0.0.1:8080/metrics
