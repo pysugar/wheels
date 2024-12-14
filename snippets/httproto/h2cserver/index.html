@@ -12,6 +12,7 @@
     };
 
     const ws = new WebSocket("ws://localhost:8080/ws");
+
     ws.onopen = function() {
         console.log("WebSocket connection opened");
         // 向服务端发送消息
